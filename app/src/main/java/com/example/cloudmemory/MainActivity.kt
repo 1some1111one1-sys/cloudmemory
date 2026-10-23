@@ -1,3 +1,4 @@
+
 package com.example.cloudmemory
 
 import android.app.Activity
@@ -99,12 +100,10 @@ class MainActivity : Activity() {
         root.addView(
             cloudCard(
                 "Google Drive",
-                "Cloud file access setup is coming next.",
-                "Connect Google Drive"
+                "Sign in on the official Google Drive website.",
+                "Open Google Drive"
             ) {
-                showMessage(
-                    "Google Drive requires authorized sign-in and API setup."
-                )
+                openCloudWebsite("https://drive.google.com/drive/")
             },
             marginTop(10)
         )
@@ -112,12 +111,10 @@ class MainActivity : Activity() {
         root.addView(
             cloudCard(
                 "TeraBox",
-                "Integration requires a supported, authorized interface.",
-                "Set up TeraBox"
+                "Sign in on the official TeraBox website.",
+                "Open TeraBox"
             ) {
-                showMessage(
-                    "TeraBox integration is not implemented yet."
-                )
+                openCloudWebsite("https://www.1024terabox.com/")
             },
             marginTop(10)
         )
@@ -128,13 +125,13 @@ class MainActivity : Activity() {
             text = """
                 • Dark, modern interface
                 • Local folder access
-                • Unified cloud dashboard
-                • Future upload and download support
-                • Future offline file support
+                • Google Drive website access
+                • TeraBox website access
+                • Future in-app cloud integration
 
-                Cloud storage remains online storage.
-                It cannot be merged directly into your
-                phone's physical internal memory.
+                Cloud accounts open separately.
+                In-app cloud file browsing and syncing
+                are not implemented yet.
             """.trimIndent()
 
             textSize = 14f
@@ -144,12 +141,21 @@ class MainActivity : Activity() {
         })
 
         root.addView(TextView(this).apply {
-            text = "CLOUD MEMORY • VERSION 0.1.0"
+            text = "CLOUD MEMORY • VERSION 0.2.0"
             textSize = 11f
             setTextColor(muted)
             gravity = Gravity.CENTER
             setPadding(0, dp(30), 0, dp(8))
         })
+    }
+
+    private fun openCloudWebsite(url: String) {
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            startActivity(intent)
+        } catch (e: Exception) {
+            showMessage("Unable to open the cloud website.")
+        }
     }
 
     private fun card(): LinearLayout {
@@ -166,7 +172,6 @@ class MainActivity : Activity() {
         button: String,
         click: () -> Unit
     ): LinearLayout {
-
         val box = card()
 
         box.addView(TextView(this).apply {
@@ -202,7 +207,6 @@ class MainActivity : Activity() {
         label: String,
         click: () -> Unit
     ): Button {
-
         return Button(this).apply {
             text = label
             isAllCaps = false
@@ -236,9 +240,7 @@ class MainActivity : Activity() {
     ) {
         super.onActivityResult(requestCode, resultCode, data)
 
-        if (requestCode == PICK_FOLDER &&
-            resultCode == RESULT_OK
-        ) {
+        if (requestCode == PICK_FOLDER && resultCode == RESULT_OK) {
             val uri: Uri? = data?.data
 
             if (uri != null) {
@@ -248,19 +250,13 @@ class MainActivity : Activity() {
                         Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 )
 
-                showMessage(
-                    "Folder access granted successfully!"
-                )
+                showMessage("Folder access granted successfully!")
             }
         }
     }
 
     private fun showMessage(message: String) {
-        Toast.makeText(
-            this,
-            message,
-            Toast.LENGTH_LONG
-        ).show()
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 
     private fun marginTop(value: Int): LinearLayout.LayoutParams {
@@ -273,8 +269,6 @@ class MainActivity : Activity() {
     }
 
     private fun dp(value: Int): Int {
-        return (
-            value * resources.displayMetrics.density
-        ).toInt()
+        return (value * resources.displayMetrics.density).toInt()
     }
 }
