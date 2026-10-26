@@ -19,6 +19,8 @@ import android.widget.Toast;
 import com.cloudbridge.app.core.Account;
 import com.cloudbridge.app.core.CloudClient;
 import com.cloudbridge.app.core.CloudClients;
+import com.cloudbridge.app.core.GoogleDriveClient;
+import com.cloudbridge.app.core.MegaClient;
 import com.cloudbridge.app.core.CloudEntry;
 import com.cloudbridge.app.core.CloudException;
 import com.cloudbridge.app.core.HttpTransport;
@@ -101,6 +103,8 @@ public class CloudDocumentsProvider extends DocumentsProvider {
 
     public static void clearCaches() {
         ENTRY_CACHE.clear();
+        GoogleDriveClient.clearCaches();
+        MegaClient.clearCaches();
     }
 
     @Override
@@ -136,7 +140,8 @@ public class CloudDocumentsProvider extends DocumentsProvider {
             row.add(Root.COLUMN_ROOT_ID, a.id);
             row.add(Root.COLUMN_DOCUMENT_ID, Ids.encode(a.id, "/"));
             row.add(Root.COLUMN_TITLE, a.name);
-            row.add(Root.COLUMN_SUMMARY, a.type == Account.Type.S3 ? "S3 · " + a.bucket : "WebDAV");
+            row.add(Root.COLUMN_SUMMARY, a.type == Account.Type.S3 ? "S3 · " + a.bucket
+                    : a.type == Account.Type.GOOGLE_DRIVE ? "Google Drive" : a.type == Account.Type.MEGA ? "MEGA" : "WebDAV");
             row.add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE | Root.FLAG_SUPPORTS_IS_CHILD);
             row.add(Root.COLUMN_ICON, R.drawable.ic_cloud);
             row.add(Root.COLUMN_MIME_TYPES, "*/*");

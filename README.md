@@ -8,11 +8,13 @@ Browse, open, copy, rename, move, delete, and save files straight to the cloud.
 
 | Works with | Notes |
 |---|---|
+| **Google Drive** | Sign in with Google. Needs a free client ID from your own Google Cloud project (steps below). |
+| **MEGA** | E-mail and password (and a two-factor code if you use one). Files are decrypted on the phone. |
 | **WebDAV** | Nextcloud, ownCloud, Synology / QNAP NAS, Box, pCloud, Koofr, Apache/nginx DAV, ... |
 | **S3-compatible** | AWS S3, Cloudflare R2, Backblaze B2, Wasabi, MinIO, DigitalOcean Spaces, ... |
 
-Not included: Google Drive, OneDrive and Dropbox already ship their own apps that appear in the
-Files app. TeraBox has no public API, so it cannot be connected.
+Not included: OneDrive and Dropbox already ship their own apps that appear in the Files app. TeraBox has
+no public API, so it cannot be connected.
 
 ## Get the APK (no Android Studio needed)
 
@@ -37,6 +39,32 @@ first, and then add your accounts again.
 3. *Test & save*. The storage now shows up in the **Files** app (menu, then its name) and in every
    app's "choose file" screen.
 
+### Google Drive: getting the client ID (once, about 5 minutes)
+
+Google only lets an app reach your Drive with a client ID, and this app has none of its own, so you make one:
+
+1. Go to console.cloud.google.com and create a project.
+2. *APIs & Services > Library*, search "Google Drive API", press **Enable**.
+3. *OAuth consent screen* (called "Google Auth platform" in newer consoles): choose **External**, fill in an app
+   name and your e-mail, and add yourself as a test user.
+4. Press **Publish app** so the status is **In production**. If you leave it in "Testing", Google ends the sign-in
+   every 7 days.
+5. *Credentials > Create credentials > OAuth client ID*, application type **Desktop app**.
+6. In CloudBridge choose *Google Drive*, paste the client ID and client secret, press **Sign in with Google**.
+   Google says the app is "not verified": that is expected, because it is your own app. Tap *Advanced* and continue.
+
+Drive notes: Google Docs, Sheets and Slides appear as .docx, .xlsx and .pptx (converted when opened, read-only; they
+cannot be overwritten). Drive allows several files with the same name; the oldest keeps its name and the others show
+as "name (2)", "name (3)". Deleting moves a file to the Drive trash. The sign-in uses the full Drive permission,
+because the narrower one only shows files this app created.
+
+### MEGA notes
+
+CloudBridge talks to MEGA's own encrypted API (MEGA has no WebDAV or public file API). Your whole file list is read
+once and kept for a minute, so the first open of a very large account is slow. Deleting moves to the MEGA Rubbish
+Bin; replacing a file moves the old copy there. Duplicate names are numbered like on Drive. If MEGA ever answers that
+it wants an "app key", get a free one at mega.io/developers and enter it in the optional box.
+
 ## How it works and its limits
 
 - A file is **downloaded to the phone when it is opened** and **uploaded when the app that wrote it closes
@@ -48,22 +76,23 @@ first, and then add your accounts again.
   has already closed it), that upload is lost. Wait for the upload to finish before leaving the phone idle,
   and check the file in the cloud when it matters.
 - There is no background sync. Changes made by other devices appear when a folder is reopened
-  (listings are cached for 60 seconds).
-- Passwords and keys are encrypted with the Android Keystore. Plain `http://` addresses are allowed
+  (listings are cached for 30 to 60 seconds).
+- Passwords, keys and sign-ins are encrypted with the Android Keystore. Plain `http://` addresses are allowed
   (for a NAS on your home network) but send the password unencrypted, so prefer `https://`.
 - The Android layer was written without access to the Android SDK. The protocol code (WebDAV, S3 and
-  AWS Signature V4) is covered by automated tests, but the first real-device run is the true test.
-  If the build or the app misbehaves, please share the Actions log or the message shown in the Files app.
+  AWS Signature V4, Google OAuth and the Drive API, MEGA's protocol and encryption) is covered by automated tests,
+  but Google and MEGA were only tested against imitations of their servers, so the first real sign-in is the true
+  test. If the build or the app misbehaves, please share the Actions log or the message shown on screen.
 
 ## Project layout
 
 ```
 app/src/main/java/com/cloudbridge/app/
   CloudDocumentsProvider.java   the Files-app integration (DocumentsProvider)
-  MainActivity.java             add / edit / remove accounts
+  MainActivity.java             add / edit / remove accounts, Google sign-in
   AccountStore.java, SecretBox.java, OkHttpTransport.java
-  core/                         pure Java, no Android: WebDAV client, S3 client + SigV4 signer, paths
-tests/                          protocol tests with in-process mock WebDAV and S3 servers
+  core/                         pure Java, no Android: WebDAV, S3 + SigV4, Google OAuth + Drive, MEGA, paths
+tests/                          protocol tests with in-process mock WebDAV, S3, Google and MEGA servers
 ```
 
 Run the tests on any computer with a JDK: `bash tests/run.sh`.

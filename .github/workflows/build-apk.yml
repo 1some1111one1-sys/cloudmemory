@@ -52,4 +52,3 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "CloudBridge build ${{ github.run_number }}.${{ github.run_attempt }}" \
             --notes "Download CloudBridge.apk to your Android phone and open it to install."
-            

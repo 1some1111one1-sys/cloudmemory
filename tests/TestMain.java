@@ -21,7 +21,7 @@ public final class TestMain {
     private static int passed;
     private static int failed;
 
-    private static void check(String name, boolean ok) {
+    static void check(String name, boolean ok) {
         if (ok) {
             passed++;
         } else {
@@ -30,13 +30,13 @@ public final class TestMain {
         }
     }
 
-    private static void eq(String name, Object expected, Object actual) {
+    static void eq(String name, Object expected, Object actual) {
         boolean ok = expected == null ? actual == null : expected.equals(actual);
         if (!ok) System.out.println("   expected: " + expected + "\n   actual:   " + actual);
         check(name, ok);
     }
 
-    private static void run(String name, ThrowingRunnable r) {
+    static void run(String name, ThrowingRunnable r) {
         try {
             r.run();
         } catch (Throwable t) {
@@ -50,7 +50,7 @@ public final class TestMain {
         void run() throws Exception;
     }
 
-    private static CloudException expectFail(String name, ThrowingRunnable r) {
+    static CloudException expectFail(String name, ThrowingRunnable r) {
         try {
             r.run();
         } catch (CloudException e) {
@@ -66,11 +66,11 @@ public final class TestMain {
         return null;
     }
 
-    private static File tmpDir() throws IOException {
+    static File tmpDir() throws IOException {
         return Files.createTempDirectory("cbtest").toFile();
     }
 
-    private static File randomFile(int size, long seed) throws IOException {
+    static File randomFile(int size, long seed) throws IOException {
         byte[] b = new byte[size];
         new Random(seed).nextBytes(b);
         File f = File.createTempFile("cbt", ".bin");
@@ -79,7 +79,7 @@ public final class TestMain {
         return f;
     }
 
-    private static List<String> names(List<CloudEntry> l) {
+    static List<String> names(List<CloudEntry> l) {
         List<String> n = new ArrayList<>();
         for (CloudEntry e : l) n.add(e.path + (e.dir ? "/" : ""));
         Collections.sort(n);
@@ -99,6 +99,8 @@ public final class TestMain {
         run("s3 e2e (server ignores encoding-type)", () -> testS3EndToEnd(false));
         run("s3 errors", TestMain::testS3Errors);
         run("s3 validation", TestMain::testValidation);
+        TestGoogle.runAll();
+        TestMega.runAll();
         System.out.println(passed + " checks passed, " + failed + " failed");
         System.exit(failed == 0 ? 0 : 1);
     }

@@ -86,28 +86,44 @@ public final class AccountStore {
                 Account a = new Account();
                 a.id = o.getString("id");
                 a.name = o.optString("name");
-                a.type = "S3".equals(o.optString("type")) ? Account.Type.S3 : Account.Type.WEBDAV;
+                a.type = parseType(o.optString("type"));
+                a.clientId = o.optString("clientId");
                 a.url = o.optString("url");
                 a.username = o.optString("username");
                 a.region = o.optString("region");
                 a.bucket = o.optString("bucket");
                 a.pathStyle = o.optBoolean("pathStyle", true);
-                a.secret = "";
-                String enc = o.optString("secret");
-                if (!enc.isEmpty()) {
-                    try {
-                        a.secret = SecretBox.decrypt(enc);
-                    } catch (GeneralSecurityException | RuntimeException e) {
-                        // Includes ProviderException, which the Keystore throws on some devices after a reset.
-                        Log.w(TAG, "Could not decrypt the secret of " + a.name + "; it must be entered again", e);
-                    }
-                }
+                a.secret = decrypt(o.optString("secret"), a.name);
+                a.clientSecret = decrypt(o.optString("clientSecret"), a.name);
                 out.add(a);
             }
         } catch (JSONException e) {
             Log.w(TAG, "Could not read saved accounts", e);
         }
         return out;
+    }
+
+    private static Account.Type parseType(String name) {
+        try {
+            return Account.Type.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            return Account.Type.WEBDAV;
+        }
+    }
+
+    private static String decrypt(String enc, String accountName) {
+        if (enc == null || enc.isEmpty()) return "";
+        try {
+            return SecretBox.decrypt(enc);
+        } catch (GeneralSecurityException | RuntimeException e) {
+            // Includes ProviderException, which the Keystore throws on some devices after a reset.
+            Log.w(TAG, "Could not decrypt a secret of " + accountName + "; it must be entered again", e);
+            return "";
+        }
+    }
+
+    private static String encrypt(String plain) throws GeneralSecurityException {
+        return plain == null || plain.isEmpty() ? "" : SecretBox.encrypt(plain);
     }
 
     private static void persist(Context ctx, List<Account> accounts) {
@@ -123,7 +139,9 @@ public final class AccountStore {
                 o.put("region", a.region);
                 o.put("bucket", a.bucket);
                 o.put("pathStyle", a.pathStyle);
-                o.put("secret", a.secret == null || a.secret.isEmpty() ? "" : SecretBox.encrypt(a.secret));
+                o.put("secret", encrypt(a.secret));
+                o.put("clientId", a.clientId == null ? "" : a.clientId);
+                o.put("clientSecret", encrypt(a.clientSecret));
                 arr.put(o);
             }
         } catch (JSONException | GeneralSecurityException | RuntimeException e) {

@@ -24,7 +24,12 @@ import android.widget.TextView;
 import android.widget.Toast;
 import com.cloudbridge.app.core.Account;
 import com.cloudbridge.app.core.CloudClients;
+import com.cloudbridge.app.core.GoogleDriveClient;
+import com.cloudbridge.app.core.GoogleOAuth;
 import com.cloudbridge.app.core.HttpTransport;
+import com.cloudbridge.app.core.LoopbackReceiver;
+import com.cloudbridge.app.core.MegaClient;
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 
@@ -53,8 +58,8 @@ public class MainActivity extends Activity {
         });
 
         page.addView(label("Your cloud storage, as a folder on your phone", 20, true, Color.BLACK));
-        TextView intro = label("Connect a WebDAV server (Nextcloud, ownCloud, Synology and others) or an "
-                + "S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, MinIO and others). It then appears in "
+        TextView intro = label("Connect Google Drive, MEGA, a WebDAV server (Nextcloud, ownCloud, Synology and others) or "
+                + "an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, MinIO and others). It then appears in "
                 + "the Files app and in every app's \"choose file\" screen, where you can browse, open, copy, "
                 + "rename, delete and save files.", 14, false, GREY);
         intro.setPadding(0, dp(8), 0, dp(16));
@@ -74,8 +79,11 @@ public class MainActivity extends Activity {
                 + "• A file is downloaded to your phone when you open it, and uploaded when the app that edited it "
                 + "closes it.\n"
                 + "• Passwords and keys are stored encrypted with the Android Keystore.\n"
-                + "• Google Drive, OneDrive and Dropbox have their own apps that already appear in the Files app. "
-                + "TeraBox has no public API, so it cannot be connected.", 13, false, GREY);
+                + "• Google Drive needs a free client ID from your own Google Cloud project (the Add screen "
+                + "explains how).\n"
+                + "• MEGA signs in with your e-mail and password; its files are decrypted on your phone.\n"
+                + "• OneDrive and Dropbox have their own apps that already appear in the Files app. TeraBox "
+                + "cannot be connected yet.", 13, false, GREY);
         notes.setPadding(0, dp(24), 0, 0);
         page.addView(notes);
 
@@ -176,14 +184,26 @@ public class MainActivity extends Activity {
         final Spinner type = new Spinner(this);
         type.setAdapter(new ArrayAdapter<String>(this, android.R.layout.simple_spinner_dropdown_item,
                 new String[]{"WebDAV  (Nextcloud, ownCloud, Synology...)",
-                        "S3-compatible  (AWS S3, R2, B2, MinIO...)"}));
-        type.setSelection(a.type == Account.Type.S3 ? 1 : 0);
+                        "S3-compatible  (AWS S3, R2, B2, MinIO...)",
+                        "Google Drive  (sign in with Google)",
+                        "MEGA  (e-mail and password)"}));
+        type.setSelection(a.type == Account.Type.S3 ? 1 : a.type == Account.Type.GOOGLE_DRIVE ? 2
+                : a.type == Account.Type.MEGA ? 3 : 0);
+        final boolean wasMega = a.type == Account.Type.MEGA;
+        final String originalEmail = wasMega ? a.username : "";
+        final String originalPassword = wasMega ? a.secret : "";
+        final String[] megaSession = {wasMega ? a.clientSecret : ""};
+        final boolean wasGoogle = a.type == Account.Type.GOOGLE_DRIVE;
+        // The Google sign-in lives in these two, so the password field never shows a token.
+        final String[] refreshToken = {wasGoogle ? a.secret : ""};
+        final String[] email = {wasGoogle ? a.username : ""};
         form.addView(type);
 
         final EditText name = field("Name shown in the Files app", a.name, InputType.TYPE_CLASS_TEXT);
         final EditText url = field("", a.url, InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_CLASS_TEXT);
-        final EditText user = field("", a.username, InputType.TYPE_CLASS_TEXT);
-        final EditText secret = field("", a.secret,
+        final EditText user = field("", wasGoogle ? "" : a.username,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
+        final EditText secret = field("", wasGoogle ? "" : a.secret,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         final EditText region = field("Region (e.g. us-east-1; Cloudflare R2: auto)",
                 a.region == null || a.region.isEmpty() ? "us-east-1" : a.region, InputType.TYPE_CLASS_TEXT);
@@ -191,6 +211,25 @@ public class MainActivity extends Activity {
         final CheckBox pathStyle = new CheckBox(this);
         pathStyle.setText("Path-style addressing (leave on unless your provider needs bucket.host)");
         pathStyle.setChecked(a.pathStyle);
+
+        final EditText googleId = field("Google client ID (ends in .apps.googleusercontent.com)", a.clientId,
+                InputType.TYPE_CLASS_TEXT);
+        final EditText googleSecret = field("Google client secret", a.clientSecret,
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        final EditText megaCode = field("Two-factor code (only if your MEGA account uses one)", "",
+                InputType.TYPE_CLASS_NUMBER);
+        final EditText megaKey = field("MEGA app key (optional; only if MEGA asks for one)", wasMega ? a.clientId : "",
+                InputType.TYPE_CLASS_TEXT);
+        final Button howTo = new Button(this);
+        howTo.setText("How do I get these two?");
+        howTo.setAllCaps(false);
+        howTo.setOnClickListener(v -> showGoogleHelp());
+        final Button signIn = new Button(this);
+        signIn.setText("Sign in with Google");
+        signIn.setAllCaps(false);
+        final TextView googleStatus = label(refreshToken[0].isEmpty() ? "Not signed in yet."
+                : "Signed in" + (email[0].isEmpty() ? "." : " as " + email[0]), 14, false, GREY);
+        googleStatus.setPadding(0, dp(4), 0, 0);
 
         final TextView status = label("", 13, false, Color.parseColor("#B3261E"));
         status.setPadding(0, dp(8), 0, 0);
@@ -202,17 +241,34 @@ public class MainActivity extends Activity {
         form.addView(region);
         form.addView(bucket);
         form.addView(pathStyle);
+        form.addView(megaCode);
+        form.addView(megaKey);
+        form.addView(googleId);
+        form.addView(googleSecret);
+        form.addView(howTo);
+        form.addView(signIn);
+        form.addView(googleStatus);
         form.addView(status);
 
         final View[] s3Only = {region, bucket, pathStyle};
+        final View[] googleOnly = {googleId, googleSecret, howTo, signIn, googleStatus};
+        final View[] megaOnly = {megaCode, megaKey};
+        final View[] passwordFields = {url, user, secret};
         type.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 boolean s3 = position == 1;
+                boolean google = position == 2;
+                boolean mega = position == 3;
+                for (View v : googleOnly) v.setVisibility(google ? View.VISIBLE : View.GONE);
+                for (View v : megaOnly) v.setVisibility(mega ? View.VISIBLE : View.GONE);
+                for (View v : passwordFields) v.setVisibility(google ? View.GONE : View.VISIBLE);
+                url.setVisibility(google || mega ? View.GONE : View.VISIBLE);
                 url.setHint(s3 ? "Endpoint, e.g. https://s3.amazonaws.com" : "Server URL, e.g. https://cloud.example.com/remote.php/dav/files/me");
-                user.setHint(s3 ? "Access key ID" : "Username (leave empty if none)");
+                user.setHint(s3 ? "Access key ID" : mega ? "MEGA e-mail address" : "Username (leave empty if none)");
                 secret.setHint(s3 ? "Secret access key" : "Password");
                 for (View v : s3Only) v.setVisibility(s3 ? View.VISIBLE : View.GONE);
+                status.setText("");
             }
 
             @Override
@@ -237,10 +293,30 @@ public class MainActivity extends Activity {
 
         // Read the form into `a`. Returns an error message, or null when the settings are usable.
         final java.util.concurrent.Callable<String> readForm = () -> {
-            a.type = type.getSelectedItemPosition() == 1 ? Account.Type.S3 : Account.Type.WEBDAV;
-            a.url = url.getText().toString().trim();
-            a.username = user.getText().toString().trim();
-            a.secret = secret.getText().toString();
+            int position = type.getSelectedItemPosition();
+            a.type = position == 1 ? Account.Type.S3 : position == 2 ? Account.Type.GOOGLE_DRIVE
+                    : position == 3 ? Account.Type.MEGA : Account.Type.WEBDAV;
+            if (a.type == Account.Type.GOOGLE_DRIVE) {
+                a.url = "";
+                a.username = email[0];
+                a.secret = refreshToken[0];
+                a.clientId = googleId.getText().toString().trim();
+                a.clientSecret = googleSecret.getText().toString().trim();
+            } else if (a.type == Account.Type.MEGA) {
+                a.url = "";
+                a.username = user.getText().toString().trim();
+                a.secret = secret.getText().toString();
+                a.clientId = megaKey.getText().toString().trim();
+                // A saved MEGA session only belongs to the e-mail and password it was made with.
+                boolean same = wasMega && a.username.equalsIgnoreCase(originalEmail) && a.secret.equals(originalPassword);
+                a.clientSecret = same ? megaSession[0] : "";
+            } else {
+                a.url = url.getText().toString().trim();
+                a.username = user.getText().toString().trim();
+                a.secret = secret.getText().toString();
+                a.clientId = "";
+                a.clientSecret = "";
+            }
             a.region = region.getText().toString().trim();
             a.bucket = bucket.getText().toString().trim();
             a.pathStyle = pathStyle.isChecked();
@@ -253,6 +329,86 @@ public class MainActivity extends Activity {
             }
             return null;
         };
+
+        // ---- Google sign-in: system browser + a loopback redirect that only this phone can receive.
+        final LoopbackReceiver[] receiver = {null};
+        dialog.setOnDismissListener(d -> {
+            if (receiver[0] != null) receiver[0].close();
+        });
+        signIn.setOnClickListener(v -> {
+            final String clientId = googleId.getText().toString().trim();
+            final String clientSecret = googleSecret.getText().toString().trim();
+            if (clientId.isEmpty() || clientSecret.isEmpty()) {
+                status.setTextColor(Color.parseColor("#B3261E"));
+                status.setText("Enter the client ID and client secret first (tap \"How do I get these two?\").");
+                return;
+            }
+            if (receiver[0] != null) receiver[0].close();
+            final LoopbackReceiver rx;
+            try {
+                rx = new LoopbackReceiver();
+            } catch (IOException e) {
+                status.setTextColor(Color.parseColor("#B3261E"));
+                status.setText("Could not start the sign-in: " + e.getMessage());
+                return;
+            }
+            receiver[0] = rx;
+            final String verifier = GoogleOAuth.newVerifier();
+            final String state = GoogleOAuth.newState();
+            final String redirect = rx.redirectUri();
+            String authUrl = GoogleOAuth.authUrl(clientId, redirect, state, GoogleOAuth.challenge(verifier));
+            try {
+                startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)));
+            } catch (Exception e) {
+                rx.close();
+                status.setTextColor(Color.parseColor("#B3261E"));
+                status.setText("Could not open the browser: " + e.getMessage());
+                return;
+            }
+            status.setTextColor(GREY);
+            status.setText("Finish signing in in your browser, then return to CloudBridge...");
+            signIn.setEnabled(false);
+            new Thread(() -> {
+                String failure = null;
+                String token = null;
+                String mail = "";
+                String warning = null;
+                try {
+                    String code = rx.awaitCode(state, 5 * 60 * 1000L);
+                    GoogleOAuth.Tokens t = GoogleOAuth.exchange(TRANSPORT, GoogleOAuth.TOKEN_URL, clientId,
+                            clientSecret, code, verifier, redirect);
+                    token = t.refreshToken;
+                    try {
+                        mail = new GoogleDriveClient(TRANSPORT, clientId, clientSecret, token).signedInEmail();
+                    } catch (Exception e) {
+                        warning = e.getMessage();
+                    }
+                } catch (Exception e) {
+                    failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                } finally {
+                    rx.close();
+                }
+                final String fFailure = failure, fToken = token, fMail = mail, fWarning = warning;
+                runOnUiThread(() -> {
+                    if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
+                    signIn.setEnabled(true);
+                    if (fFailure != null) {
+                        status.setTextColor(Color.parseColor("#B3261E"));
+                        status.setText(fFailure);
+                        return;
+                    }
+                    refreshToken[0] = fToken;
+                    email[0] = fMail;
+                    googleStatus.setText("Signed in" + (fMail.isEmpty() ? "." : " as " + fMail));
+                    if (name.getText().toString().trim().isEmpty()) {
+                        name.setText(fMail.isEmpty() ? "Google Drive" : "Google Drive (" + fMail + ")");
+                    }
+                    status.setTextColor(GREY);
+                    status.setText(fWarning == null ? "Signed in. Now press \"Test & save\"."
+                            : "Signed in, but Google Drive answered: " + fWarning);
+                });
+            }).start();
+        });
 
         saveOnly.setOnClickListener(v -> {
             String error = readOrError(readForm);
@@ -273,9 +429,17 @@ public class MainActivity extends Activity {
             status.setText("Testing the connection...");
             testAndSave.setEnabled(false);
             final Account snapshot = a.copy();
+            final String twoFactor = megaCode.getText().toString().trim();
+            final String[] newSession = {null};
             new Thread(() -> {
                 String failure = null;
                 try {
+                    if (snapshot.type == Account.Type.MEGA) {
+                        // Sign in for real (this is where a two-factor code is used) and keep the session.
+                        newSession[0] = MegaClient.signIn(TRANSPORT, snapshot.username, snapshot.secret, twoFactor,
+                                snapshot.clientId);
+                        snapshot.clientSecret = newSession[0];
+                    }
                     CloudClients.create(snapshot, TRANSPORT).list("/");
                 } catch (Exception e) {
                     failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
@@ -285,6 +449,7 @@ public class MainActivity extends Activity {
                     if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
                     testAndSave.setEnabled(true);
                     if (result == null) {
+                        if (newSession[0] != null) a.clientSecret = newSession[0];
                         if (save(a, isNew)) dialog.dismiss();
                     } else {
                         status.setTextColor(Color.parseColor("#B3261E"));
@@ -321,6 +486,10 @@ public class MainActivity extends Activity {
     }
 
     private static String defaultName(Account a) {
+        if (a.type == Account.Type.MEGA) return "MEGA (" + a.username + ")";
+        if (a.type == Account.Type.GOOGLE_DRIVE) {
+            return a.username == null || a.username.isEmpty() ? "Google Drive" : "Google Drive (" + a.username + ")";
+        }
         try {
             String host = new URI(a.url.contains("://") ? a.url : "https://" + a.url).getHost();
             if (host != null && !host.isEmpty()) {
@@ -329,6 +498,25 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
         return a.type == Account.Type.S3 ? "S3 storage" : "WebDAV storage";
+    }
+
+    private void showGoogleHelp() {
+        new AlertDialog.Builder(this)
+                .setTitle("Getting a Google client ID")
+                .setMessage("Google only lets apps reach your Drive with a client ID, and CloudBridge has none of "
+                        + "its own, so you make a free one (about 5 minutes, once).\n\n"
+                        + "1. On console.cloud.google.com create a project.\n"
+                        + "2. APIs & Services > Library > search \"Google Drive API\" > Enable.\n"
+                        + "3. APIs & Services > OAuth consent screen (Google Auth platform): choose External, fill in "
+                        + "an app name and your e-mail, add yourself as a test user.\n"
+                        + "4. On that screen press \"Publish app\" so the status is \"In production\". (In "
+                        + "\"Testing\" mode Google logs you out every 7 days.)\n"
+                        + "5. Credentials > Create credentials > OAuth client ID > Application type \"Desktop app\".\n"
+                        + "6. Copy the client ID and client secret into CloudBridge.\n\n"
+                        + "When you sign in, Google warns that the app is \"not verified\". That is expected: it is "
+                        + "your own app. Tap Advanced > Go to (app name) and allow access.")
+                .setPositiveButton("OK", null)
+                .show();
     }
 
     // ------------------------------------------------------------------ small UI helpers
