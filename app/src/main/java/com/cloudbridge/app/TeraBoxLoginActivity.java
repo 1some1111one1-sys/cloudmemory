@@ -64,7 +64,7 @@ public class TeraBoxLoginActivity extends Activity {
 
         cookies = CookieManager.getInstance();
         cookies.setAcceptCookie(true);
-        cookies.setAcceptThirdPartyCookie(web, true);
+        cookies.setAcceptThirdPartyCookies(web, true);
         // Start clean so an old sign-in in this web view is never mistaken for the account being added.
         cookies.removeAllCookies(value -> web.loadUrl(site + "/main"));
 
