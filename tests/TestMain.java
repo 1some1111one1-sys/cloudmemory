@@ -101,6 +101,7 @@ public final class TestMain {
         run("s3 validation", TestMain::testValidation);
         TestGoogle.runAll();
         TestMega.runAll();
+        TestTeraBox.runAll();
         System.out.println(passed + " checks passed, " + failed + " failed");
         System.exit(failed == 0 ? 0 : 1);
     }

@@ -10,11 +10,11 @@ Browse, open, copy, rename, move, delete, and save files straight to the cloud.
 |---|---|
 | **Google Drive** | Sign in with Google. Needs a free client ID from your own Google Cloud project (steps below). |
 | **MEGA** | E-mail and password (and a two-factor code if you use one). Files are decrypted on the phone. |
+| **TeraBox** (experimental) | Unofficial. You sign in on TeraBox's real website inside the app. May break whenever TeraBox changes its site. |
 | **WebDAV** | Nextcloud, ownCloud, Synology / QNAP NAS, Box, pCloud, Koofr, Apache/nginx DAV, ... |
 | **S3-compatible** | AWS S3, Cloudflare R2, Backblaze B2, Wasabi, MinIO, DigitalOcean Spaces, ... |
 
-Not included: OneDrive and Dropbox already ship their own apps that appear in the Files app. TeraBox has
-no public API, so it cannot be connected.
+Not included: OneDrive and Dropbox already ship their own apps that appear in the Files app.
 
 ## Get the APK (no Android Studio needed)
 
@@ -65,6 +65,17 @@ once and kept for a minute, so the first open of a very large account is slow. D
 Bin; replacing a file moves the old copy there. Duplicate names are numbered like on Drive. If MEGA ever answers that
 it wants an "app key", get a free one at mega.io/developers and enter it in the optional box.
 
+### TeraBox notes (experimental)
+
+TeraBox has no public API and no WebDAV. CloudBridge therefore uses the same requests as the TeraBox website: you
+sign in on the real site in a web view (CloudBridge never sees your password and keeps only the session cookie the
+site sets, encrypted). Because these requests are not a supported interface, TeraBox can change them at any time and
+the connection will stop working until the app is updated; automated access may also be against TeraBox's terms, so
+use it at your own risk. Use e-mail sign-in on the TeraBox page (Google sign-in is normally refused inside an app).
+If TeraBox sends a security check, open the TeraBox website in a browser once, solve it, then sign in again. Errors
+include TeraBox's own error number to help diagnose problems. The default address is https://www.1024terabox.com;
+change it in the form if your account uses another TeraBox domain.
+
 ## How it works and its limits
 
 - A file is **downloaded to the phone when it is opened** and **uploaded when the app that wrote it closes
@@ -80,9 +91,9 @@ it wants an "app key", get a free one at mega.io/developers and enter it in the 
 - Passwords, keys and sign-ins are encrypted with the Android Keystore. Plain `http://` addresses are allowed
   (for a NAS on your home network) but send the password unencrypted, so prefer `https://`.
 - The Android layer was written without access to the Android SDK. The protocol code (WebDAV, S3 and
-  AWS Signature V4, Google OAuth and the Drive API, MEGA's protocol and encryption) is covered by automated tests,
-  but Google and MEGA were only tested against imitations of their servers, so the first real sign-in is the true
-  test. If the build or the app misbehaves, please share the Actions log or the message shown on screen.
+  AWS Signature V4, Google OAuth and the Drive API, MEGA's protocol and encryption, TeraBox's website requests) is covered by automated tests,
+  but Google, MEGA and TeraBox were only tested against imitations of their servers, so the first real sign-in is the
+  true test (TeraBox is the least certain). If the build or the app misbehaves, please share the Actions log or the message shown on screen.
 
 ## Project layout
 
@@ -90,9 +101,10 @@ it wants an "app key", get a free one at mega.io/developers and enter it in the 
 app/src/main/java/com/cloudbridge/app/
   CloudDocumentsProvider.java   the Files-app integration (DocumentsProvider)
   MainActivity.java             add / edit / remove accounts, Google sign-in
+  TeraBoxLoginActivity.java     web view for signing in on the TeraBox website
   AccountStore.java, SecretBox.java, OkHttpTransport.java
-  core/                         pure Java, no Android: WebDAV, S3 + SigV4, Google OAuth + Drive, MEGA, paths
-tests/                          protocol tests with in-process mock WebDAV, S3, Google and MEGA servers
+  core/                         pure Java, no Android: WebDAV, S3 + SigV4, Google OAuth + Drive, MEGA, TeraBox, paths
+tests/                          protocol tests with in-process mock WebDAV, S3, Google, MEGA and TeraBox servers
 ```
 
 Run the tests on any computer with a JDK: `bash tests/run.sh`.

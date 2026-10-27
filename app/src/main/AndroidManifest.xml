@@ -21,6 +21,11 @@
         </activity>
 
         <!-- Makes the connected clouds appear in the Files app and in every app's file picker. -->
+        <activity
+            android:name=".TeraBoxLoginActivity"
+            android:exported="false"
+            android:label="Sign in to TeraBox" />
+
         <provider
             android:name=".CloudDocumentsProvider"
             android:authorities="com.cloudbridge.app.documents"

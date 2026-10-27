@@ -6,6 +6,9 @@ public final class CloudClients {
 
     /** @throws IllegalArgumentException if the account settings are unusable (message is user-readable). */
     public static CloudClient create(Account a, HttpTransport http) {
+        if (a.type == Account.Type.TERABOX) {
+            return new TeraBoxClient(http, a.url, a.secret);
+        }
         if (a.type == Account.Type.MEGA) {
             return new MegaClient(http, a.username, a.secret, a.clientId, a.clientSecret);
         }

@@ -29,6 +29,7 @@ import com.cloudbridge.app.core.GoogleOAuth;
 import com.cloudbridge.app.core.HttpTransport;
 import com.cloudbridge.app.core.LoopbackReceiver;
 import com.cloudbridge.app.core.MegaClient;
+import com.cloudbridge.app.core.TeraBoxClient;
 import java.io.IOException;
 import java.net.URI;
 import java.util.List;
@@ -39,7 +40,19 @@ public class MainActivity extends Activity {
     private static final int BLUE = Color.parseColor("#1E88E5");
     private static final int GREY = Color.parseColor("#5F6368");
 
+    private static final int REQUEST_TERABOX = 4711;
+
     private LinearLayout accountList;
+    private java.util.function.Consumer<String> pendingCookie;
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQUEST_TERABOX && resultCode == RESULT_OK && data != null && pendingCookie != null) {
+            String cookie = data.getStringExtra(TeraBoxLoginActivity.EXTRA_COOKIE);
+            if (cookie != null && !cookie.isEmpty()) pendingCookie.accept(cookie);
+        }
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,7 +71,7 @@ public class MainActivity extends Activity {
         });
 
         page.addView(label("Your cloud storage, as a folder on your phone", 20, true, Color.BLACK));
-        TextView intro = label("Connect Google Drive, MEGA, a WebDAV server (Nextcloud, ownCloud, Synology and others) or "
+        TextView intro = label("Connect Google Drive, MEGA, TeraBox (experimental), a WebDAV server (Nextcloud, ownCloud, Synology and others) or "
                 + "an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, MinIO and others). It then appears in "
                 + "the Files app and in every app's \"choose file\" screen, where you can browse, open, copy, "
                 + "rename, delete and save files.", 14, false, GREY);
@@ -82,8 +95,9 @@ public class MainActivity extends Activity {
                 + "• Google Drive needs a free client ID from your own Google Cloud project (the Add screen "
                 + "explains how).\n"
                 + "• MEGA signs in with your e-mail and password; its files are decrypted on your phone.\n"
-                + "• OneDrive and Dropbox have their own apps that already appear in the Files app. TeraBox "
-                + "cannot be connected yet.", 13, false, GREY);
+                + "• TeraBox is unofficial and experimental: it has no public API, so it may stop working "
+                + "whenever TeraBox changes its website.\n"
+                + "• OneDrive and Dropbox have their own apps that already appear in the Files app.", 13, false, GREY);
         notes.setPadding(0, dp(24), 0, 0);
         page.addView(notes);
 
@@ -186,9 +200,12 @@ public class MainActivity extends Activity {
                 new String[]{"WebDAV  (Nextcloud, ownCloud, Synology...)",
                         "S3-compatible  (AWS S3, R2, B2, MinIO...)",
                         "Google Drive  (sign in with Google)",
-                        "MEGA  (e-mail and password)"}));
+                        "MEGA  (e-mail and password)",
+                        "TeraBox  (experimental, unofficial)"}));
         type.setSelection(a.type == Account.Type.S3 ? 1 : a.type == Account.Type.GOOGLE_DRIVE ? 2
-                : a.type == Account.Type.MEGA ? 3 : 0);
+                : a.type == Account.Type.MEGA ? 3 : a.type == Account.Type.TERABOX ? 4 : 0);
+        final boolean wasTera = a.type == Account.Type.TERABOX;
+        final String[] teraCookie = {wasTera ? a.secret : ""};
         final boolean wasMega = a.type == Account.Type.MEGA;
         final String originalEmail = wasMega ? a.username : "";
         final String originalPassword = wasMega ? a.secret : "";
@@ -201,9 +218,19 @@ public class MainActivity extends Activity {
 
         final EditText name = field("Name shown in the Files app", a.name, InputType.TYPE_CLASS_TEXT);
         final EditText url = field("", a.url, InputType.TYPE_TEXT_VARIATION_URI | InputType.TYPE_CLASS_TEXT);
-        final EditText user = field("", wasGoogle ? "" : a.username,
+        final TextView teraWarn = label("Experimental and unofficial. TeraBox has no public API, so CloudBridge uses "
+                + "the website's own requests, which TeraBox can change at any time. Automated access may be against "
+                + "TeraBox's terms, so use it at your own risk. You sign in on TeraBox's real page; CloudBridge never "
+                + "sees your password.", 13, false, Color.parseColor("#B3261E"));
+        teraWarn.setPadding(0, dp(8), 0, dp(4));
+        final Button teraSignIn = new Button(this);
+        teraSignIn.setText("Sign in on the TeraBox website");
+        teraSignIn.setAllCaps(false);
+        final TextView teraStatus = label(teraCookie[0].isEmpty() ? "Not signed in yet." : "Signed in.", 14, false, GREY);
+        teraStatus.setPadding(0, dp(4), 0, 0);
+        final EditText user = field("", wasGoogle || wasTera ? "" : a.username,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
-        final EditText secret = field("", wasGoogle ? "" : a.secret,
+        final EditText secret = field("", wasGoogle || wasTera ? "" : a.secret,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         final EditText region = field("Region (e.g. us-east-1; Cloudflare R2: auto)",
                 a.region == null || a.region.isEmpty() ? "us-east-1" : a.region, InputType.TYPE_CLASS_TEXT);
@@ -241,6 +268,9 @@ public class MainActivity extends Activity {
         form.addView(region);
         form.addView(bucket);
         form.addView(pathStyle);
+        form.addView(teraWarn);
+        form.addView(teraSignIn);
+        form.addView(teraStatus);
         form.addView(megaCode);
         form.addView(megaKey);
         form.addView(googleId);
@@ -253,7 +283,7 @@ public class MainActivity extends Activity {
         final View[] s3Only = {region, bucket, pathStyle};
         final View[] googleOnly = {googleId, googleSecret, howTo, signIn, googleStatus};
         final View[] megaOnly = {megaCode, megaKey};
-        final View[] passwordFields = {url, user, secret};
+        final View[] teraOnly = {teraWarn, teraSignIn, teraStatus};
         type.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
@@ -261,10 +291,16 @@ public class MainActivity extends Activity {
                 boolean google = position == 2;
                 boolean mega = position == 3;
                 for (View v : googleOnly) v.setVisibility(google ? View.VISIBLE : View.GONE);
+                boolean tera = position == 4;
                 for (View v : megaOnly) v.setVisibility(mega ? View.VISIBLE : View.GONE);
-                for (View v : passwordFields) v.setVisibility(google ? View.GONE : View.VISIBLE);
+                for (View v : teraOnly) v.setVisibility(tera ? View.VISIBLE : View.GONE);
+                user.setVisibility(google || tera ? View.GONE : View.VISIBLE);
+                secret.setVisibility(google || tera ? View.GONE : View.VISIBLE);
                 url.setVisibility(google || mega ? View.GONE : View.VISIBLE);
-                url.setHint(s3 ? "Endpoint, e.g. https://s3.amazonaws.com" : "Server URL, e.g. https://cloud.example.com/remote.php/dav/files/me");
+                if (tera && url.getText().toString().trim().isEmpty()) url.setText(TeraBoxClient.DEFAULT_SITE);
+                url.setHint(s3 ? "Endpoint, e.g. https://s3.amazonaws.com" : tera
+                        ? "TeraBox website (normally https://www.1024terabox.com)"
+                        : "Server URL, e.g. https://cloud.example.com/remote.php/dav/files/me");
                 user.setHint(s3 ? "Access key ID" : mega ? "MEGA e-mail address" : "Username (leave empty if none)");
                 secret.setHint(s3 ? "Secret access key" : "Password");
                 for (View v : s3Only) v.setVisibility(s3 ? View.VISIBLE : View.GONE);
@@ -295,13 +331,19 @@ public class MainActivity extends Activity {
         final java.util.concurrent.Callable<String> readForm = () -> {
             int position = type.getSelectedItemPosition();
             a.type = position == 1 ? Account.Type.S3 : position == 2 ? Account.Type.GOOGLE_DRIVE
-                    : position == 3 ? Account.Type.MEGA : Account.Type.WEBDAV;
+                    : position == 3 ? Account.Type.MEGA : position == 4 ? Account.Type.TERABOX : Account.Type.WEBDAV;
             if (a.type == Account.Type.GOOGLE_DRIVE) {
                 a.url = "";
                 a.username = email[0];
                 a.secret = refreshToken[0];
                 a.clientId = googleId.getText().toString().trim();
                 a.clientSecret = googleSecret.getText().toString().trim();
+            } else if (a.type == Account.Type.TERABOX) {
+                a.url = url.getText().toString().trim();
+                a.username = "";
+                a.secret = teraCookie[0];
+                a.clientId = "";
+                a.clientSecret = "";
             } else if (a.type == Account.Type.MEGA) {
                 a.url = "";
                 a.username = user.getText().toString().trim();
@@ -329,6 +371,21 @@ public class MainActivity extends Activity {
             }
             return null;
         };
+
+        // ---- TeraBox sign-in: the real website in a web view; we keep only the session cookie it sets.
+        teraSignIn.setOnClickListener(v -> {
+            String site = url.getText().toString().trim();
+            if (site.isEmpty()) site = TeraBoxClient.DEFAULT_SITE;
+            if (!site.contains("://")) site = "https://" + site;
+            pendingCookie = cookie -> {
+                teraCookie[0] = cookie;
+                teraStatus.setText("Signed in. Now press \"Test & save\".");
+                status.setText("");
+            };
+            Intent i = new Intent(this, TeraBoxLoginActivity.class);
+            i.putExtra(TeraBoxLoginActivity.EXTRA_SITE, site);
+            startActivityForResult(i, REQUEST_TERABOX);
+        });
 
         // ---- Google sign-in: system browser + a loopback redirect that only this phone can receive.
         final LoopbackReceiver[] receiver = {null};
@@ -487,6 +544,7 @@ public class MainActivity extends Activity {
 
     private static String defaultName(Account a) {
         if (a.type == Account.Type.MEGA) return "MEGA (" + a.username + ")";
+        if (a.type == Account.Type.TERABOX) return "TeraBox";
         if (a.type == Account.Type.GOOGLE_DRIVE) {
             return a.username == null || a.username.isEmpty() ? "Google Drive" : "Google Drive (" + a.username + ")";
         }
