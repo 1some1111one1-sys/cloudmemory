@@ -46,8 +46,8 @@ public class TeraBoxLoginActivity extends Activity {
         hint.setPadding(dp(14), dp(10), dp(14), dp(10));
         hint.setTextSize(14);
         hint.setTextColor(Color.parseColor("#5F6368"));
-        hint.setText("Sign in below with your TeraBox e-mail and password (Google sign-in is usually refused inside "
-                + "an app). When your files appear, press the button.");
+        hint.setText("This is TeraBox's desktop website; pinch to zoom. Sign in with your TeraBox e-mail and "
+                + "password (Google sign-in is usually refused inside an app). When your files appear, press the button.");
         page.addView(hint);
 
         web = new WebView(this);
@@ -71,6 +71,14 @@ public class TeraBoxLoginActivity extends Activity {
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
+        // Ask for TeraBox's desktop website instead of the phone version, and show it zoomed out and zoomable.
+        settings.setUserAgentString("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+        settings.setSupportZoom(true);
+        settings.setBuiltInZoomControls(true);
+        settings.setDisplayZoomControls(false);
         web.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {

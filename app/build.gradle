@@ -13,6 +13,14 @@ android {
         targetSdk 35
         versionCode 1
         versionName '1.0'
+        // Optional: a Google OAuth client baked into the app (set by the build from GOOGLE_CLIENT_ID and
+        // GOOGLE_CLIENT_SECRET). When present, "Sign in with Google" needs no client ID typed in.
+        buildConfigField 'String', 'GOOGLE_CLIENT_ID', '"' + (System.getenv('GOOGLE_CLIENT_ID') ?: '').trim().replace('"', '') + '"'
+        buildConfigField 'String', 'GOOGLE_CLIENT_SECRET', '"' + (System.getenv('GOOGLE_CLIENT_SECRET') ?: '').trim().replace('"', '') + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {

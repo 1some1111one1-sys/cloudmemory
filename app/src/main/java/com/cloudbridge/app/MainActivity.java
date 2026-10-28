@@ -281,7 +281,10 @@ public class MainActivity extends Activity {
         form.addView(status);
 
         final View[] s3Only = {region, bucket, pathStyle};
-        final View[] googleOnly = {googleId, googleSecret, howTo, signIn, googleStatus};
+        // With a client built into the app the user only presses "Sign in with Google".
+        final boolean builtInGoogle = !BuildConfig.GOOGLE_CLIENT_ID.isEmpty() && !BuildConfig.GOOGLE_CLIENT_SECRET.isEmpty();
+        final View[] googleOnly = builtInGoogle ? new View[]{signIn, googleStatus}
+                : new View[]{googleId, googleSecret, howTo, signIn, googleStatus};
         final View[] megaOnly = {megaCode, megaKey};
         final View[] teraOnly = {teraWarn, teraSignIn, teraStatus};
         type.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -336,8 +339,8 @@ public class MainActivity extends Activity {
                 a.url = "";
                 a.username = email[0];
                 a.secret = refreshToken[0];
-                a.clientId = googleId.getText().toString().trim();
-                a.clientSecret = googleSecret.getText().toString().trim();
+                a.clientId = builtInGoogle ? BuildConfig.GOOGLE_CLIENT_ID : googleId.getText().toString().trim();
+                a.clientSecret = builtInGoogle ? BuildConfig.GOOGLE_CLIENT_SECRET : googleSecret.getText().toString().trim();
             } else if (a.type == Account.Type.TERABOX) {
                 a.url = url.getText().toString().trim();
                 a.username = "";
@@ -393,8 +396,8 @@ public class MainActivity extends Activity {
             if (receiver[0] != null) receiver[0].close();
         });
         signIn.setOnClickListener(v -> {
-            final String clientId = googleId.getText().toString().trim();
-            final String clientSecret = googleSecret.getText().toString().trim();
+            final String clientId = builtInGoogle ? BuildConfig.GOOGLE_CLIENT_ID : googleId.getText().toString().trim();
+            final String clientSecret = builtInGoogle ? BuildConfig.GOOGLE_CLIENT_SECRET : googleSecret.getText().toString().trim();
             if (clientId.isEmpty() || clientSecret.isEmpty()) {
                 status.setTextColor(Color.parseColor("#B3261E"));
                 status.setText("Enter the client ID and client secret first (tap \"How do I get these two?\").");

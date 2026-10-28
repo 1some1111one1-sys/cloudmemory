@@ -34,6 +34,11 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build the APK
+        env:
+          # Optional: set these in the repository's Settings > Secrets and variables > Actions to build the
+          # Google client into the app, so "Sign in with Google" needs no client ID typed in.
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           set -o pipefail
           gradle --no-daemon --stacktrace assembleRelease 2>&1 | tee build.log

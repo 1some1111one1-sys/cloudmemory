@@ -39,6 +39,14 @@ first, and then add your accounts again.
 3. *Test & save*. The storage now shows up in the **Files** app (menu, then its name) and in every
    app's "choose file" screen.
 
+### Google Drive: one-tap sign-in (build the client ID into the app)
+
+Google requires every app that touches Drive to be registered with a client ID; there is no way around that. You can,
+however, register once and build the ID into the app, so that signing in is just the "Sign in with Google" button:
+create the client as described below, then in your GitHub repository open *Settings > Secrets and variables > Actions*
+and add a **variable** named `GOOGLE_CLIENT_ID` and a **secret** named `GOOGLE_CLIENT_SECRET`. The next build then
+hides the two boxes in the app. (If you do not add them, the app asks for the two values instead.)
+
 ### Google Drive: getting the client ID (once, about 5 minutes)
 
 Google only lets an app reach your Drive with a client ID, and this app has none of its own, so you make one:
@@ -50,7 +58,8 @@ Google only lets an app reach your Drive with a client ID, and this app has none
 4. Press **Publish app** so the status is **In production**. If you leave it in "Testing", Google ends the sign-in
    every 7 days.
 5. *Credentials > Create credentials > OAuth client ID*, application type **Desktop app**.
-6. In CloudBridge choose *Google Drive*, paste the client ID and client secret, press **Sign in with Google**.
+6. In CloudBridge choose *Google Drive*, paste the client ID and client secret (unless you built them in, see above),
+   press **Sign in with Google**.
    Google says the app is "not verified": that is expected, because it is your own app. Tap *Advanced* and continue.
 
 Drive notes: Google Docs, Sheets and Slides appear as .docx, .xlsx and .pptx (converted when opened, read-only; they
@@ -71,7 +80,7 @@ TeraBox has no public API and no WebDAV. CloudBridge therefore uses the same req
 sign in on the real site in a web view (CloudBridge never sees your password and keeps only the session cookie the
 site sets, encrypted). Because these requests are not a supported interface, TeraBox can change them at any time and
 the connection will stop working until the app is updated; automated access may also be against TeraBox's terms, so
-use it at your own risk. Use e-mail sign-in on the TeraBox page (Google sign-in is normally refused inside an app).
+use it at your own risk. Use e-mail sign-in on the TeraBox page, which opens as the desktop website (Google sign-in is normally refused inside an app).
 If TeraBox sends a security check, open the TeraBox website in a browser once, solve it, then sign in again. Errors
 include TeraBox's own error number to help diagnose problems. The default address is https://www.1024terabox.com;
 change it in the form if your account uses another TeraBox domain.
