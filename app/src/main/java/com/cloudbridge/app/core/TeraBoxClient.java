@@ -406,9 +406,12 @@ public final class TeraBoxClient implements CloudClient {
                 + (state.bdstoken == null ? "" : "&bdstoken=" + enc(state.bdstoken));
     }
 
-    private synchronized void tokens() throws IOException {
+    private static final Pattern BDS_TOKEN = Pattern.compile("bdstoken(?:\\\"|%22|\"|')?\\s*(?::|%3A|=)\\s*(?:\\\\?\"|%22|')?([0-9a-fA-F]{32})");
+
+    /** Both tokens are best effort: TeraBox moves them around, so every source is optional. */
+    private synchronized void tokens() {
         if (state.tokensFetched) return;
-        // jsToken sits in the page's script; bdstoken comes from a small JSON call. Both are best effort.
+        String fields = "app_id=" + APP_ID + "&web=1&channel=dubox&clienttype=0";
         try {
             HttpTransport.Request req = new HttpTransport.Request("GET", site + "/main");
             decorate(req, site);
@@ -416,12 +419,27 @@ public final class TeraBoxClient implements CloudClient {
             String page = readText(r, 4 * 1024 * 1024);
             Matcher m = JS_TOKEN.matcher(page);
             if (m.find()) state.jsToken = m.group(1);
+            Matcher b = BDS_TOKEN.matcher(page);
+            if (b.find()) state.bdstoken = b.group(1);
         } catch (IOException ignored) {
         }
-        Map<String, Object> t = rawGet(site + "/api/gettemplatevariable?app_id=" + APP_ID + "&web=1&channel=dubox&clienttype=0"
-                + "&fields=" + enc("[\"bdstoken\"]") + (state.jsToken == null ? "" : "&jsToken=" + enc(state.jsToken)),
-                "Opening TeraBox");
-        state.bdstoken = Json.str(Json.obj(t, "result"), "bdstoken");
+        String js = state.jsToken == null ? "" : "&jsToken=" + enc(state.jsToken);
+        if (state.bdstoken == null) {
+            try {
+                Map<String, Object> t = rawGet(site + "/api/gettemplatevariable?" + fields + "&fields=" + enc("[\"bdstoken\"]") + js,
+                        "Opening TeraBox");
+                state.bdstoken = Json.str(Json.obj(t, "result"), "bdstoken");
+            } catch (IOException ignored) {
+            }
+        }
+        if (state.bdstoken == null) {
+            try {
+                Map<String, Object> t = rawGet(site + "/api/home/info?" + fields + js, "Opening TeraBox");
+                String token = Json.str(Json.obj(t, "data"), "bdstoken");
+                state.bdstoken = token != null ? token : Json.str(t, "bdstoken");
+            } catch (IOException ignored) {
+            }
+        }
         state.tokensFetched = true;
     }
 
@@ -451,7 +469,13 @@ public final class TeraBoxClient implements CloudClient {
             throw new CloudException(401, what + " failed: TeraBox sent us to its sign-in page. Sign in again.");
         }
         if (status / 100 != 2) throw new CloudException(status, what + " failed: TeraBox answered HTTP " + status);
-        Map<String, Object> m = parse(text, what);
+        Map<String, Object> m;
+        try {
+            m = parse(text, what);
+        } catch (CloudException e) {
+            String path = url.replaceAll("^[a-z]+://[^/]+", "").replaceAll("\\?.*$", "");
+            throw new CloudException(e.status, e.getMessage() + " [HTTP " + status + " " + path + "]");
+        }
         long errno = Json.num(m, "errno", 0);
         if (errno != 0) throw errnoError(errno, what, text);
         return m;

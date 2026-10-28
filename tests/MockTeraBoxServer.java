@@ -38,6 +38,8 @@ final class MockTeraBoxServer {
     volatile boolean pageWithoutJsToken;
     volatile String forceErrno;                                // answer every /api call with this errno
     volatile boolean redirectLogin;
+    volatile boolean breakTemplate;          // the token endpoints answer with an HTML 404 page
+    volatile boolean bdstokenInPage;
     volatile int sawJsToken;
     final AtomicInteger uploadedParts = new AtomicInteger();
     private final Map<String, Map<Integer, byte[]>> sessions = new HashMap<>();
@@ -92,7 +94,8 @@ final class MockTeraBoxServer {
                     ex.sendResponseHeaders(302, -1);
                     return;
                 }
-                String html = "<html><script>function fn(a){}; var x=fn%28%22" + (pageWithoutJsToken ? "short" : JSTOKEN) + "%22%29;</script></html>";
+                String html = "<html><script>function fn(a){}; var x=fn%28%22" + (pageWithoutJsToken ? "short" : JSTOKEN) + "%22%29;"
+                        + (bdstokenInPage ? "window.yunData={\"bdstoken\":\"" + "0123456789abcdef0123456789abcdef\"};" : "") + "</script></html>";
                 text(ex, 200, html, "text/html");
                 return;
             }
@@ -116,6 +119,10 @@ final class MockTeraBoxServer {
             }
             if (forceErrno != null && path.startsWith("/api/") && !path.equals("/api/gettemplatevariable")) {
                 json(ex, "{\"errno\":" + forceErrno + "}");
+                return;
+            }
+            if (breakTemplate && (path.equals("/api/gettemplatevariable") || path.equals("/api/home/info"))) {
+                text(ex, 404, "<!DOCTYPE html><html><head><title>we can't find the page</title></head></html>", "text/html");
                 return;
             }
             if (q.get("jsToken") != null && q.get("jsToken").equals(JSTOKEN)) sawJsToken++;
@@ -159,7 +166,9 @@ final class MockTeraBoxServer {
     }
 
     private void needToken(HttpExchange ex, Map<String, String> q) {
-        if (!BDSTOKEN.equals(q.get("bdstoken"))) throw new IllegalStateException("missing bdstoken on " + ex.getRequestURI());
+        String expected = bdstokenInPage ? "0123456789abcdef0123456789abcdef" : BDSTOKEN;
+        if (breakTemplate && !bdstokenInPage) return;      // no token obtainable: the real site may not insist on one
+        if (!expected.equals(q.get("bdstoken"))) throw new IllegalStateException("missing bdstoken on " + ex.getRequestURI());
     }
 
     private void list(HttpExchange ex, Map<String, String> q) throws IOException {

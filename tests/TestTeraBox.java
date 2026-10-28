@@ -157,6 +157,19 @@ final class TestTeraBox {
             TeraBoxClient noJs = client(s);
             eq("works without a jsToken", 1, noJs.list("/").size());
 
+            // the token endpoints vanish (HTML 404): the bdstoken is read from the page instead
+            s.breakTemplate = true;
+            s.bdstokenInPage = true;
+            TeraBoxClient fromPage = client(s);
+            eq("token endpoints missing, token taken from the page", 1, fromPage.list("/").size());
+            fromPage.mkdir("/Docs/FromPage");
+            check("write works with the page token", s.files.containsKey("/Docs/FromPage"));
+            // ...and with no token anywhere, listing still works
+            s.bdstokenInPage = false;
+            TeraBoxClient noToken = client(s);
+            eq("works with no token at all", 1, noToken.list("/").size());
+            s.breakTemplate = false;
+
             TeraBoxClient c = client(s);
             c.list("/");
             s.forceErrno = "4000023";
