@@ -40,6 +40,7 @@ final class MockTeraBoxServer {
     volatile boolean redirectLogin;
     volatile boolean breakTemplate;          // the token endpoints answer with an HTML 404 page
     volatile boolean bdstokenInPage;
+    volatile String deadHost;                // requests for this Host header get an HTML 404 page (like www.)
     volatile int sawJsToken;
     final AtomicInteger uploadedParts = new AtomicInteger();
     private final Map<String, Map<Integer, byte[]>> sessions = new HashMap<>();
@@ -86,6 +87,11 @@ final class MockTeraBoxServer {
             Map<String, String> q = form(ex.getRequestURI().getRawQuery());
             byte[] body = readAll(ex.getRequestBody());
             log.add(method + " " + path);
+            String hostHeader = ex.getRequestHeaders().getFirst("Host");
+            if (deadHost != null && deadHost.equalsIgnoreCase(hostHeader)) {
+                text(ex, 404, "<!DOCTYPE html><html><head><title>we can't find the page</title></head></html>", "text/html");
+                return;
+            }
             String cookie = ex.getRequestHeaders().getFirst("Cookie");
             boolean authed = cookie != null && cookie.contains("ndus=GOODSESSION");
             if (path.equals("/main")) {

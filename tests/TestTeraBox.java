@@ -156,6 +156,7 @@ final class TestTeraBox {
             s.pageWithoutJsToken = true;
             TeraBoxClient noJs = client(s);
             eq("works without a jsToken", 1, noJs.list("/").size());
+            s.pageWithoutJsToken = false;
 
             // the token endpoints vanish (HTML 404): the bdstoken is read from the page instead
             s.breakTemplate = true;
@@ -169,6 +170,35 @@ final class TestTeraBox {
             TeraBoxClient noToken = client(s);
             eq("works with no token at all", 1, noToken.list("/").size());
             s.breakTemplate = false;
+
+            // the website host answers every request with an HTML 404 page; the API lives on another host
+            int port = Integer.parseInt(s.base().substring(s.base().lastIndexOf(':') + 1));
+            s.deadHost = "127.0.0.1:" + port;
+            TeraBoxClient.clearCaches();
+            TeraBoxClient viaDm = new TeraBoxClient(new JdkTransport(), s.base(), MockTeraBoxServer.COOKIE,
+                    Arrays.asList(s.base(), "http://localhost:" + port));
+            eq("falls over to the next API server", 1, viaDm.list("/").size());
+            viaDm.mkdir("/Docs/ViaDm");
+            check("writes work on the second server", s.files.containsKey("/Docs/ViaDm"));
+            TeraBoxClient.clearCaches();
+            TeraBoxClient allDead = new TeraBoxClient(new JdkTransport(), s.base(), MockTeraBoxServer.COOKIE,
+                    Arrays.asList(s.base()));
+            CloudException dead = expectFail("only a dead server", () -> allDead.list("/"));
+            check("a dead server is reported with status and path", dead != null && dead.getMessage().contains("HTTP 404"));
+            s.deadHost = null;
+
+            TeraBoxClient.clearCaches();
+            TeraBoxClient wrongCookie = new TeraBoxClient(new JdkTransport(), s.base(), "ndus=WRONG");
+            CloudException diag = expectFail("diagnostics", () -> wrongCookie.list("/"));
+            check("sign-in errors say what was found", diag != null && diag.getMessage().contains("jsToken found")
+                    && diag.getMessage().contains("cookies ndus,PANWEB"));
+            check("the secret cookie value is never shown", diag != null && !diag.getMessage().contains("WRONG"));
+
+            eq("dm host first for the www website", Arrays.asList("https://dm.1024terabox.com", "https://www.1024terabox.com"),
+                    TeraBoxClient.candidateBases("https", "www.1024terabox.com"));
+            eq("local test server only itself", Arrays.asList("http://127.0.0.1:80"), TeraBoxClient.candidateBases("http", "127.0.0.1:80"));
+            eq("dm host stays", Arrays.asList("https://dm.terabox.com"), TeraBoxClient.candidateBases("https", "dm.terabox.com"));
+            eq("unescape", "fn(\"AB\") 100%", TeraBoxClient.unescape("fn%28%22AB%22%29 100%"));
 
             TeraBoxClient c = client(s);
             c.list("/");

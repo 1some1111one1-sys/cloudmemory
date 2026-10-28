@@ -11,6 +11,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -32,7 +34,7 @@ public final class TeraBoxClient implements CloudClient {
             + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
     private static final int BLOCK = 4 * 1024 * 1024;
     private static final long CACHE_TTL_MS = 20_000;
-    private static final Pattern JS_TOKEN = Pattern.compile("fn(?:%28|\\()(?:%22|\")([0-9A-Za-z]{20,})(?:%22|\")");
+    private static final Pattern JS_TOKEN = Pattern.compile("fn\\(\"([^\"\\s]{16,})\"\\)");
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private static final Map<String, State> STATES = new ConcurrentHashMap<>();
@@ -43,8 +45,15 @@ public final class TeraBoxClient implements CloudClient {
     private final String scheme;
     private final String cookie;
     private final State state;
+    /** Servers that may answer the JSON API, best guess first. The www website itself usually does not. */
+    private final List<String> bases;
 
     public TeraBoxClient(HttpTransport http, String siteUrl, String cookie) {
+        this(http, siteUrl, cookie, null);
+    }
+
+    /** For tests: the list of API servers to try, in order. */
+    TeraBoxClient(HttpTransport http, String siteUrl, String cookie, List<String> apiBases) {
         String s = siteUrl == null || siteUrl.trim().isEmpty() ? DEFAULT_SITE : siteUrl.trim();
         if (!s.contains("://")) s = "https://" + s;
         URI u;
@@ -63,7 +72,10 @@ public final class TeraBoxClient implements CloudClient {
         this.scheme = u.getScheme();
         this.siteHost = u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
         this.site = scheme + "://" + siteHost;
-        this.cookie = cookie.trim();
+        String c = cookie.trim();
+        if (!c.contains("PANWEB=")) c = c + "; PANWEB=1";
+        this.cookie = c;
+        this.bases = apiBases != null ? apiBases : candidateBases(scheme, siteHost);
         String key = site + "|" + this.cookie;
         State st = STATES.get(key);
         if (st == null) {
@@ -81,6 +93,8 @@ public final class TeraBoxClient implements CloudClient {
     private static final class State {
         String bdstoken;
         String jsToken;
+        String base;                                  // the API server that worked
+        final java.util.Set<String> failedBases = Collections.synchronizedSet(new LinkedHashSet<>());
         boolean tokensFetched;
         final Map<String, long[]> listedAt = new ConcurrentHashMap<>();                  // dir -> {time}
         final Map<String, List<Entry>> listings = new ConcurrentHashMap<>();
@@ -92,6 +106,70 @@ public final class TeraBoxClient implements CloudClient {
         long size;
         long modified;
         String fsId;
+    }
+
+    /** TeraBox's website answers the API on its "dm." host; the "www." host serves pages only. */
+    static List<String> candidateBases(String scheme, String host) {
+        List<String> out = new ArrayList<>();
+        String bare = host.replaceAll(":\\d+$", "");
+        boolean local = bare.matches("[\\d.:]+") || bare.equals("localhost");
+        if (!local && !bare.startsWith("dm.")) {
+            String root = bare.startsWith("www.") ? bare.substring(4) : bare;
+            out.add(scheme + "://dm." + root);
+        }
+        out.add(scheme + "://" + host);
+        return out;
+    }
+
+    private String base() {
+        String b = state.base;
+        return b != null ? b : bases.get(0);
+    }
+
+    private interface Call {
+        Map<String, Object> run() throws IOException;
+    }
+
+    /** True when the server answered with a web page or "not found" instead of API data: wrong server. */
+    private static boolean wrongServer(CloudException e) {
+        String m = String.valueOf(e.getMessage());
+        return (e.status == 404 && m.contains("answered HTTP 404")) || (e.status == 502 && m.contains("did not answer"));
+    }
+
+    /** Runs an API call; when this server is not the API server, moves on to the next candidate. */
+    private Map<String, Object> failover(Call call) throws IOException {
+        CloudException first = null;
+        for (int attempt = 0; attempt < bases.size(); attempt++) {
+            try {
+                return call.run();
+            } catch (CloudException e) {
+                if (!wrongServer(e)) throw e;
+                if (first == null) first = e;
+                state.failedBases.add(base());
+                String next = null;
+                for (String b : bases) {
+                    if (!state.failedBases.contains(b)) {
+                        next = b;
+                        break;
+                    }
+                }
+                if (next == null) break;
+                state.base = next;
+            }
+        }
+        throw first;
+    }
+
+    private String diagnostics() {
+        StringBuilder names = new StringBuilder();
+        for (String part : cookie.split(";")) {
+            String n = part.trim();
+            int eq = n.indexOf('=');
+            if (eq > 0) names.append(names.length() == 0 ? "" : ",").append(n, 0, eq);
+        }
+        return " [server " + base().replaceAll("^[a-z]+://", "") + "; jsToken "
+                + (state.jsToken == null ? "not found" : "found") + "; bdstoken "
+                + (state.bdstoken == null ? "not found" : "found") + "; cookies " + names + "]";
     }
 
     // ---------------------------------------------------------------- CloudClient
@@ -408,25 +486,56 @@ public final class TeraBoxClient implements CloudClient {
 
     private static final Pattern BDS_TOKEN = Pattern.compile("bdstoken(?:\\\"|%22|\"|')?\\s*(?::|%3A|=)\\s*(?:\\\\?\"|%22|')?([0-9a-fA-F]{32})");
 
+    /** Removes %XX escapes (the page hides its script inside one); leaves anything malformed alone. */
+    static String unescape(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch == '%' && i + 2 < s.length() && hex(s.charAt(i + 1)) >= 0 && hex(s.charAt(i + 2)) >= 0) {
+                sb.append((char) (hex(s.charAt(i + 1)) * 16 + hex(s.charAt(i + 2))));
+                i += 2;
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+    private static int hex(char c) {
+        return Character.digit(c, 16);
+    }
+
     /** Both tokens are best effort: TeraBox moves them around, so every source is optional. */
     private synchronized void tokens() {
         if (state.tokensFetched) return;
         String fields = "app_id=" + APP_ID + "&web=1&channel=dubox&clienttype=0";
-        try {
-            HttpTransport.Request req = new HttpTransport.Request("GET", site + "/main");
-            decorate(req, site);
-            HttpTransport.Response r = http.execute(req);
-            String page = readText(r, 4 * 1024 * 1024);
-            Matcher m = JS_TOKEN.matcher(page);
-            if (m.find()) state.jsToken = m.group(1);
-            Matcher b = BDS_TOKEN.matcher(page);
-            if (b.find()) state.bdstoken = b.group(1);
-        } catch (IOException ignored) {
+        String pageBase = null;
+        for (String b : bases) {
+            try {
+                HttpTransport.Request req = new HttpTransport.Request("GET", b + "/main?category=all");
+                decorate(req, b);
+                HttpTransport.Response r = http.execute(req);
+                int code = r.code;
+                String raw = readText(r, 4 * 1024 * 1024);
+                if (code / 100 != 2) continue;
+                String page = unescape(raw);
+                Matcher m = JS_TOKEN.matcher(page);
+                if (m.find()) state.jsToken = m.group(1);
+                Matcher t = BDS_TOKEN.matcher(page);
+                if (t.find()) state.bdstoken = t.group(1);
+                if (pageBase == null) pageBase = b;
+                if (state.jsToken != null) {
+                    pageBase = b;
+                    break;
+                }
+            } catch (IOException ignored) {
+            }
         }
+        if (pageBase != null) state.base = pageBase;
         String js = state.jsToken == null ? "" : "&jsToken=" + enc(state.jsToken);
         if (state.bdstoken == null) {
             try {
-                Map<String, Object> t = rawGet(site + "/api/gettemplatevariable?" + fields + "&fields=" + enc("[\"bdstoken\"]") + js,
+                Map<String, Object> t = rawGet(base() + "/api/gettemplatevariable?" + fields + "&fields=" + enc("[\"bdstoken\"]") + js,
                         "Opening TeraBox");
                 state.bdstoken = Json.str(Json.obj(t, "result"), "bdstoken");
             } catch (IOException ignored) {
@@ -434,7 +543,7 @@ public final class TeraBoxClient implements CloudClient {
         }
         if (state.bdstoken == null) {
             try {
-                Map<String, Object> t = rawGet(site + "/api/home/info?" + fields + js, "Opening TeraBox");
+                Map<String, Object> t = rawGet(base() + "/api/home/info?" + fields + js, "Opening TeraBox");
                 String token = Json.str(Json.obj(t, "data"), "bdstoken");
                 state.bdstoken = token != null ? token : Json.str(t, "bdstoken");
             } catch (IOException ignored) {
@@ -445,15 +554,17 @@ public final class TeraBoxClient implements CloudClient {
 
     private Map<String, Object> apiGet(String endpoint, String extra, String what) throws IOException {
         tokens();
-        return rawGet(site + "/api/" + endpoint + "?" + common() + extra, what);
+        return failover(() -> rawGet(base() + "/api/" + endpoint + "?" + common() + extra, what));
     }
 
     private Map<String, Object> apiPost(String endpoint, String extraQuery, String form, String what) throws IOException {
         tokens();
-        String url = site + "/api/" + endpoint + "?" + common() + extraQuery;
-        HttpTransport.Request req = new HttpTransport.Request("POST", url)
-                .body(form.getBytes(StandardCharsets.UTF_8), "application/x-www-form-urlencoded; charset=UTF-8");
-        return finish(req, url, what);
+        return failover(() -> {
+            String url = base() + "/api/" + endpoint + "?" + common() + extraQuery;
+            HttpTransport.Request req = new HttpTransport.Request("POST", url)
+                    .body(form.getBytes(StandardCharsets.UTF_8), "application/x-www-form-urlencoded; charset=UTF-8");
+            return finish(req, url, what);
+        });
     }
 
     private Map<String, Object> rawGet(String url, String what) throws IOException {
@@ -477,14 +588,19 @@ public final class TeraBoxClient implements CloudClient {
             throw new CloudException(e.status, e.getMessage() + " [HTTP " + status + " " + path + "]");
         }
         long errno = Json.num(m, "errno", 0);
-        if (errno != 0) throw errnoError(errno, what, text);
+        if (errno != 0) {
+            CloudException ce = errnoError(errno, what, text);
+            if (ce.status == 401) throw new CloudException(401, ce.getMessage() + diagnostics());
+            throw ce;
+        }
         return m;
     }
 
     private void decorate(HttpTransport.Request req, String url) {
         req.header("User-Agent", UA);
         req.header("Accept", "application/json, text/plain, */*");
-        req.header("Referer", site + "/main");
+        req.header("Referer", base() + "/main?category=all");
+        req.header("Origin", base());
         if (sameFamily(url)) req.header("Cookie", cookie);
     }
 
@@ -493,6 +609,9 @@ public final class TeraBoxClient implements CloudClient {
         try {
             String h = URI.create(url).getHost();
             if (h == null) return false;
+            for (String b : bases) {
+                if (h.equalsIgnoreCase(URI.create(b).getHost())) return true;
+            }
             String mine = registrable(siteHost.replaceAll(":\\d+$", ""));
             return h.equalsIgnoreCase(siteHost.replaceAll(":\\d+$", "")) || h.toLowerCase(Locale.ROOT).endsWith("." + mine)
                     || h.equalsIgnoreCase(mine);

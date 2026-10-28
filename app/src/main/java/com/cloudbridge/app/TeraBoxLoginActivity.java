@@ -87,9 +87,32 @@ public class TeraBoxLoginActivity extends Activity {
         });
     }
 
+    /**
+     * The cookies TeraBox set, gathered from its website address and from the "dm." server that answers the API
+     * (the same sign-in can be stored under either, depending on where TeraBox redirected you).
+     */
     private String currentCookie() {
-        String c = cookies.getCookie(site);
-        return c == null ? "" : c;
+        java.util.LinkedHashMap<String, String> merged = new java.util.LinkedHashMap<>();
+        String host = java.net.URI.create(site).getHost();
+        java.util.List<String> urls = new java.util.ArrayList<>();
+        urls.add(site);
+        if (host != null) {
+            String root = host.startsWith("www.") ? host.substring(4) : host;
+            if (!host.startsWith("dm.")) urls.add("https://dm." + root);
+            urls.add("https://" + root);
+        }
+        for (String u : urls) {
+            String c = cookies.getCookie(u);
+            if (c == null) continue;
+            for (String part : c.split(";")) {
+                String p = part.trim();
+                int eq = p.indexOf('=');
+                if (eq > 0 && !merged.containsKey(p.substring(0, eq))) merged.put(p.substring(0, eq), p);
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String v : merged.values()) sb.append(sb.length() == 0 ? "" : "; ").append(v);
+        return sb.toString();
     }
 
     private void refreshButton() {
