@@ -133,3 +133,17 @@ WebDAV bridge:
 The bridge listens on 127.0.0.1 only and requires the password. Files are downloaded to the phone before they
 open (like in the Files app). Source: `core/WebDavServer.java` and `core/FtpServer.java`, tests in `tests/TestWebDavServer.java` and
 `tests/TestFtpServer.java`.
+
+## Real files for every app: the sync folder
+
+The only way every app can use cloud files without root is if they are real files in the phone's storage.
+For each cloud, **Sync to phone folder** keeps one cloud folder (for example `/Photos`) mirrored, in both
+directions, in `Internal storage/CloudBridge/<cloud name>/`. Any file manager, gallery or player can use it.
+
+- Needs the "All files access" permission (CloudBridge asks). Syncing runs as a foreground service, or
+  automatically every 6 hours on Wi-Fi when switched on.
+- Changes on one side are copied to the other. A file changed on both sides keeps both versions
+  (`name (phone copy).ext`). Cloud deletions remove the phone copy; phone deletions reach the cloud only if
+  "also delete in the cloud" is on (otherwise the file comes back).
+- If more than half of the synced files would be deleted at once, nothing is deleted and you are told.
+- Files bigger than the chosen limit are skipped. Source: `core/SyncEngine.java`, tests in `tests/TestSync.java`.

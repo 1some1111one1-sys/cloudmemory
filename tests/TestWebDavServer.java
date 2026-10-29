@@ -35,10 +35,23 @@ final class TestWebDavServer {
     static final class MemoryCloud implements CloudClient {
         final TreeMap<String, byte[]> files = new TreeMap<>();   // path -> data (null = folder)
         boolean failDownloads;
+        final Map<String, Long> mtimes = new java.util.HashMap<>();
+        long clock = 1_700_000_000_000L;
+        final java.util.Set<String> unreadableDirs = new java.util.HashSet<>();
+
+        void touch(String path) {
+            mtimes.put(path, clock += 5000);
+        }
+
+        void put(String path, String text) {
+            files.put(path, text == null ? null : text.getBytes(StandardCharsets.UTF_8));
+            touch(path);
+        }
 
         @Override
         public List<CloudEntry> list(String dir) throws IOException {
             String d = Paths.normalize(dir);
+            if (unreadableDirs.contains(d)) throw new CloudException(502, "the cloud is down");
             if (!d.equals("/") && !files.containsKey(d)) throw new CloudException(404, "Not found: " + d);
             List<CloudEntry> out = new ArrayList<>();
             for (Map.Entry<String, byte[]> e : files.entrySet()) {
@@ -49,7 +62,7 @@ final class TestWebDavServer {
 
         private CloudEntry entry(String p) {
             byte[] data = files.get(p);
-            return new CloudEntry(p, data == null, data == null ? -1 : data.length, 1_700_000_000_000L);
+            return new CloudEntry(p, data == null, data == null ? -1 : data.length, mtimes.getOrDefault(p, 1_700_000_000_000L));
         }
 
         @Override
@@ -73,6 +86,7 @@ final class TestWebDavServer {
             String p = Paths.normalize(path);
             if (!Paths.parent(p).equals("/") && !files.containsKey(Paths.parent(p))) throw new CloudException(409, "no parent");
             files.put(p, Files.readAllBytes(src.toPath()));
+            touch(p);
         }
 
         @Override
@@ -80,6 +94,7 @@ final class TestWebDavServer {
             String p = Paths.normalize(path);
             if (files.containsKey(p)) throw new CloudException(405, "exists");
             files.put(p, null);
+            touch(p);
         }
 
         @Override
@@ -98,7 +113,11 @@ final class TestWebDavServer {
             if (files.containsKey(t)) throw new CloudException(412, "exists");
             List<String> keys = new ArrayList<>();
             for (String k : files.keySet()) if (k.equals(f) || k.startsWith(f + "/")) keys.add(k);
-            for (String k : keys) files.put(t + k.substring(f.length()), files.remove(k));
+            for (String k : keys) {
+                files.put(t + k.substring(f.length()), files.remove(k));
+                Long m = mtimes.remove(k);
+                if (m != null) mtimes.put(t + k.substring(f.length()), m);
+            }
         }
     }
 
@@ -317,12 +336,24 @@ final class TestWebDavServer {
         check("stopped server refuses connections", !canConnect(port));
     }
 
+    /** Whether something still accepts connections on the port. Closing a listening socket takes a moment, and a
+     *  closed local port can, rarely, "connect" to itself (TCP simultaneous open), so look for a refusal for a second. */
     private static boolean canConnect(int port) {
-        try (Socket s = new Socket("127.0.0.1", port)) {
-            return s.isConnected();
-        } catch (IOException e) {
-            return false;
+        long until = System.currentTimeMillis() + 1500;
+        while (System.currentTimeMillis() < until) {
+            try (Socket s = new Socket("127.0.0.1", port)) {
+                s.isConnected();
+            } catch (IOException e) {
+                return false;
+            }
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return true;
+            }
         }
+        return true;
     }
 
     private static String readResponseHead(InputStream in) throws IOException {
