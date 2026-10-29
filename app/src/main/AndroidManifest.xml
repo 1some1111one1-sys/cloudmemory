@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:allowBackup="false"
@@ -25,6 +28,16 @@
             android:name=".TeraBoxLoginActivity"
             android:exported="false"
             android:label="Sign in to TeraBox" />
+
+        <!-- The local WebDAV bridge that lets other file managers reach the clouds (listens on 127.0.0.1 only). -->
+        <service
+            android:name=".BridgeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local WebDAV server so other file managers can browse the connected clouds" />
+        </service>
 
         <provider
             android:name=".CloudDocumentsProvider"

@@ -102,6 +102,7 @@ public final class TestMain {
         TestGoogle.runAll();
         TestMega.runAll();
         TestTeraBox.runAll();
+        TestWebDavServer.runAll();
         System.out.println(passed + " checks passed, " + failed + " failed");
         System.exit(failed == 0 ? 0 : 1);
     }

@@ -117,3 +117,17 @@ tests/                          protocol tests with in-process mock WebDAV, S3, 
 ```
 
 Run the tests on any computer with a JDK: `bash tests/run.sh`.
+
+## Using the clouds in other file managers (WebDAV bridge)
+
+Android only lets the system mount real drives, so a true "USB drive" is not possible without root. Third-party
+file managers that cannot list the storages of the Files app can instead connect to CloudBridge's built-in
+WebDAV bridge:
+
+1. Open CloudBridge and tick **Share my clouds with other file managers**.
+2. In the other app add a WebDAV storage with the host, port, user name and password shown there
+   (`http://127.0.0.1:8484/`, plain HTTP, folder `/`).
+3. Every connected cloud (Google Drive, MEGA, TeraBox, WebDAV, S3) appears as a folder.
+
+The bridge listens on 127.0.0.1 only and requires the password. Files are downloaded to the phone before they
+open (like in the Files app). Source: `core/WebDavServer.java`, tests in `tests/TestWebDavServer.java`.

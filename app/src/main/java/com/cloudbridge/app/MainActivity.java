@@ -43,6 +43,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_TERABOX = 4711;
 
     private LinearLayout accountList;
+    private LinearLayout bridgeBox;
     private java.util.function.Consumer<String> pendingCookie;
 
     @Override
@@ -88,6 +89,16 @@ public class MainActivity extends Activity {
         accountList.setPadding(0, dp(16), 0, 0);
         page.addView(accountList);
 
+        bridgeBox = new LinearLayout(this);
+        bridgeBox.setOrientation(LinearLayout.VERTICAL);
+        bridgeBox.setPadding(dp(14), dp(12), dp(14), dp(12));
+        bridgeBox.setBackgroundColor(Color.parseColor("#E8F0FE"));
+        LinearLayout.LayoutParams bridgeParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        bridgeParams.topMargin = dp(20);
+        bridgeBox.setLayoutParams(bridgeParams);
+        page.addView(bridgeBox);
+
         TextView notes = label("Good to know\n"
                 + "• A file is downloaded to your phone when you open it, and uploaded when the app that edited it "
                 + "closes it.\n"
@@ -108,6 +119,77 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         refresh();
+        refreshBridge();
+    }
+
+    // ------------------------------------------------------------------ the bridge for other file managers
+
+    private void refreshBridge() {
+        bridgeBox.removeAllViews();
+        boolean on = BridgeSettings.enabled(this);
+        final int port = BridgeService.port();
+        bridgeBox.addView(label("Use your clouds in other file managers", 17, true, Color.BLACK));
+        TextView what = label("Apps such as Solid Explorer, X-plore, CX File Explorer or FX cannot list the storages "
+                + "in the Files app, but they can connect to a WebDAV address. Switch this on and add that address in "
+                + "them: every cloud above then shows up as a folder. It works only on this phone, needs no root, "
+                + "and covers every cloud type, TeraBox included.", 13, false, GREY);
+        what.setPadding(0, dp(6), 0, dp(6));
+        bridgeBox.addView(what);
+
+        CheckBox toggle = new CheckBox(this);
+        toggle.setText("Share my clouds with other file managers");
+        toggle.setChecked(on);
+        toggle.setOnClickListener(v -> {
+            boolean wanted = ((CheckBox) v).isChecked();
+            if (wanted) {
+                if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
+                    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
+                }
+                BridgeService.start(this);
+            } else {
+                BridgeService.stop(this);
+            }
+            refreshBridge();
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::refreshBridge, 800);
+        });
+        bridgeBox.addView(toggle);
+        if (!on) return;
+
+        if (port == 0) {
+            String err = BridgeService.lastError();
+            bridgeBox.addView(label(err.isEmpty() ? "Starting..." : "Could not start: " + err, 13, false, GREY));
+            return;
+        }
+        final String password = BridgeSettings.password(this);
+        final String address = "http://127.0.0.1:" + port + "/";
+        TextView details = label("Server (host): 127.0.0.1\nPort: " + port + "\nAddress: " + address
+                + "\nUser name: " + BridgeSettings.USER + "\nPassword: " + password, 14, false, Color.BLACK);
+        details.setPadding(0, dp(8), 0, dp(4));
+        details.setTextIsSelectable(true);
+        bridgeBox.addView(details);
+        LinearLayout buttons = new LinearLayout(this);
+        buttons.setOrientation(LinearLayout.HORIZONTAL);
+        buttons.addView(smallButton("Copy address", v -> copy("Address", address)));
+        buttons.addView(smallButton("Copy password", v -> copy("Password", password)));
+        buttons.addView(smallButton("New password", v -> {
+            BridgeSettings.newPassword(this);
+            BridgeService.restart(this);   // so the running server uses the new password
+            refreshBridge();
+            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::refreshBridge, 800);
+        }));
+        bridgeBox.addView(buttons);
+        TextView how = label("In the other app: add a new storage of type WebDAV (sometimes under \"Network\" or "
+                + "\"Remote\"), enter the values above, choose plain HTTP (no SSL), and leave the folder as /. "
+                + "Large files are downloaded to the phone before they start to open. Keep the notification "
+                + "that appears: it is what keeps the bridge alive.", 12, false, GREY);
+        how.setPadding(0, dp(6), 0, 0);
+        bridgeBox.addView(how);
+    }
+
+    private void copy(String what, String text) {
+        android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        cm.setPrimaryClip(android.content.ClipData.newPlainText(what, text));
+        toast(what + " copied");
     }
 
     // ------------------------------------------------------------------ account list
