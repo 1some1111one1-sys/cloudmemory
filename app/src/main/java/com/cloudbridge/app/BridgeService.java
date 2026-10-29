@@ -15,6 +15,7 @@ import com.cloudbridge.app.core.Account;
 import com.cloudbridge.app.core.CloudClient;
 import com.cloudbridge.app.core.CloudClients;
 import com.cloudbridge.app.core.CloudException;
+import com.cloudbridge.app.core.FtpServer;
 import com.cloudbridge.app.core.HttpTransport;
 import com.cloudbridge.app.core.Paths;
 import com.cloudbridge.app.core.WebDavServer;
@@ -37,13 +38,20 @@ public class BridgeService extends Service {
     private static final HttpTransport TRANSPORT = new OkHttpTransport();
 
     private static volatile int runningPort;
+    private static volatile int runningFtpPort;
     private static volatile String lastError = "";
 
     private WebDavServer server;
+    private FtpServer ftp;
 
     /** The port the bridge listens on, or 0 when it is not running. */
     public static int port() {
         return runningPort;
+    }
+
+    /** The port of the FTP bridge, or 0 when it is not running. */
+    public static int ftpPort() {
+        return runningFtpPort;
     }
 
     public static String lastError() {
@@ -83,22 +91,23 @@ public class BridgeService extends Service {
         }
         showNotification(0);
         if (intent != null && ACTION_RESTART.equals(intent.getAction()) && server != null) {
-            server.stop();
-            server = null;
-            runningPort = 0;
+            stopServers();
         }
         if (server == null) {
             try {
-                WebDavServer s = new WebDavServer(new AccountsBackend(this), getCacheDir(), BridgeSettings.USER,
-                        BridgeSettings.password(this));
+                AccountsBackend backend = new AccountsBackend(this);
+                WebDavServer s = new WebDavServer(backend, getCacheDir(), BridgeSettings.USER, BridgeSettings.password(this));
                 runningPort = s.start(BridgeSettings.PREFERRED_PORT);
                 server = s;
+                FtpServer f = new FtpServer(backend, getCacheDir(), BridgeSettings.USER, BridgeSettings.password(this));
+                runningFtpPort = f.start(BridgeSettings.PREFERRED_FTP_PORT);
+                ftp = f;
                 lastError = "";
                 showNotification(runningPort);
             } catch (IOException | RuntimeException e) {
-                Log.e(TAG, "The WebDAV bridge could not start", e);
+                Log.e(TAG, "The bridge could not start", e);
+                stopServers();
                 lastError = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                runningPort = 0;
                 BridgeSettings.setEnabled(this, false);
                 stopForeground(Service.STOP_FOREGROUND_REMOVE);
                 stopSelf();
@@ -110,10 +119,17 @@ public class BridgeService extends Service {
 
     @Override
     public void onDestroy() {
-        if (server != null) server.stop();
-        server = null;
-        runningPort = 0;
+        stopServers();
         super.onDestroy();
+    }
+
+    private void stopServers() {
+        if (server != null) server.stop();
+        if (ftp != null) ftp.stop();
+        server = null;
+        ftp = null;
+        runningPort = 0;
+        runningFtpPort = 0;
     }
 
     private void showNotification(int port) {
@@ -127,7 +143,7 @@ public class BridgeService extends Service {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(this, CHANNEL)
                 .setContentTitle("CloudBridge is sharing your clouds")
-                .setContentText(port == 0 ? "Starting..." : "Address http://127.0.0.1:" + port + "/")
+                .setContentText(port == 0 ? "Starting..." : "WebDAV port " + port + ", FTP port " + runningFtpPort)
                 .setSmallIcon(R.drawable.ic_cloud)
                 .setContentIntent(open)
                 .addAction(0, "Turn off", stopIntent)

@@ -14,7 +14,6 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
 import java.util.Base64;
@@ -25,7 +24,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,15 +42,13 @@ public final class WebDavServer {
         CloudClient client(String name) throws IOException;
     }
 
-    private static final long CACHE_LIMIT_BYTES = 512L * 1024 * 1024;
     private static final int MAX_LINE = 16 * 1024;
 
     private final Backend backend;
-    private final File downloads;
+    private final DownloadCache cache;
     private final File uploads;
     private final byte[] expectedUser;
     private final byte[] expectedPassword;
-    private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
     private final ExecutorService pool = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "cloudbridge-webdav");
         t.setDaemon(true);
@@ -63,7 +59,7 @@ public final class WebDavServer {
 
     public WebDavServer(Backend backend, File cacheDir, String user, String password) {
         this.backend = backend;
-        this.downloads = new File(cacheDir, "webdav-dl");
+        this.cache = new DownloadCache(new File(cacheDir, "webdav-dl"));
         this.uploads = new File(cacheDir, "webdav-up");
         this.expectedUser = user.getBytes(StandardCharsets.UTF_8);
         this.expectedPassword = password.getBytes(StandardCharsets.UTF_8);
@@ -73,7 +69,7 @@ public final class WebDavServer {
     public synchronized int start(int preferredPort) throws IOException {
         if (socket != null) return socket.getLocalPort();
         //noinspection ResultOfMethodCallIgnored
-        downloads.mkdirs();
+        cache.ensureDir();
         //noinspection ResultOfMethodCallIgnored
         uploads.mkdirs();
         File[] leftovers = uploads.listFiles();
@@ -639,7 +635,7 @@ public final class WebDavServer {
             head(out, 200, h);
             return;
         }
-        File f = cached(t.account, t.path, e, c);
+        File f = cache.get(t.account, t.path, e, c);
         long size = f.length();
         long from = 0;
         long to = size - 1;
@@ -684,44 +680,6 @@ public final class WebDavServer {
                 out.write(buf, 0, n);
                 left -= n;
             }
-        }
-    }
-
-    /** The cloud file as a local file (downloaded once, then reused until it changes in the cloud). */
-    private File cached(String account, String path, CloudEntry e, CloudClient c) throws IOException {
-        File f = new File(downloads, sha1(account + "|" + path) + "_" + e.size + "_" + e.modified);
-        Object lock = locks.computeIfAbsent(f.getName(), k -> new Object());
-        synchronized (lock) {
-            if (!f.isFile()) {
-                File part = new File(downloads, f.getName() + ".part" + System.nanoTime());
-                try {
-                    c.download(path, part);
-                    if (!part.renameTo(f)) throw new IOException("Could not store the downloaded file");
-                } finally {
-                    //noinspection ResultOfMethodCallIgnored
-                    part.delete();
-                }
-                pruneCache();
-            }
-            //noinspection ResultOfMethodCallIgnored
-            f.setLastModified(System.currentTimeMillis());
-        }
-        return f;
-    }
-
-    private void pruneCache() {
-        File[] files = downloads.listFiles();
-        if (files == null) return;
-        long total = 0;
-        for (File f : files) total += f.length();
-        if (total <= CACHE_LIMIT_BYTES) return;
-        Arrays.sort(files, (x, y) -> Long.compare(x.lastModified(), y.lastModified()));
-        long recent = System.currentTimeMillis() - 60_000;
-        for (File f : files) {
-            if (total <= CACHE_LIMIT_BYTES) break;
-            if (f.lastModified() > recent) continue;
-            long len = f.length();
-            if (f.delete()) total -= len;
         }
     }
 
@@ -850,17 +808,6 @@ public final class WebDavServer {
         } finally {
             //noinspection ResultOfMethodCallIgnored
             tmp.delete();
-        }
-    }
-
-    private static String sha1(String s) {
-        try {
-            byte[] d = MessageDigest.getInstance("SHA-1").digest(s.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder();
-            for (byte b : d) sb.append(String.format("%02x", b));
-            return sb.toString();
-        } catch (NoSuchAlgorithmException ex) {
-            throw new IllegalStateException(ex);
         }
     }
 }

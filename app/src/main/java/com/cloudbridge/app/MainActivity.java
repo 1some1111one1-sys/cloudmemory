@@ -129,10 +129,10 @@ public class MainActivity extends Activity {
         boolean on = BridgeSettings.enabled(this);
         final int port = BridgeService.port();
         bridgeBox.addView(label("Use your clouds in other file managers", 17, true, Color.BLACK));
-        TextView what = label("Apps such as Solid Explorer, X-plore, CX File Explorer or FX cannot list the storages "
-                + "in the Files app, but they can connect to a WebDAV address. Switch this on and add that address in "
-                + "them: every cloud above then shows up as a folder. It works only on this phone, needs no root, "
-                + "and covers every cloud type, TeraBox included.", 13, false, GREY);
+        TextView what = label("Most file managers cannot list the storages of the Files app, but many can connect to "
+                + "an FTP or WebDAV server. Switch this on and add the address below in your file manager: every cloud "
+                + "above then shows up as a folder. It works only on this phone, needs no root, and covers every cloud "
+                + "type, TeraBox included.", 13, false, GREY);
         what.setPadding(0, dp(6), 0, dp(6));
         bridgeBox.addView(what);
 
@@ -162,8 +162,9 @@ public class MainActivity extends Activity {
         }
         final String password = BridgeSettings.password(this);
         final String address = "http://127.0.0.1:" + port + "/";
-        TextView details = label("Server (host): 127.0.0.1\nPort: " + port + "\nAddress: " + address
-                + "\nUser name: " + BridgeSettings.USER + "\nPassword: " + password, 14, false, Color.BLACK);
+        TextView details = label("Server (host): 127.0.0.1\nUser name: " + BridgeSettings.USER + "\nPassword: " + password
+                + "\n\nFTP (for built-in file managers)\nPort: " + BridgeService.ftpPort()
+                + "\n\nWebDAV (for Solid Explorer, X-plore ...)\nPort: " + port + "\nAddress: " + address, 14, false, Color.BLACK);
         details.setPadding(0, dp(8), 0, dp(4));
         details.setTextIsSelectable(true);
         bridgeBox.addView(details);
@@ -178,8 +179,9 @@ public class MainActivity extends Activity {
             new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::refreshBridge, 800);
         }));
         bridgeBox.addView(buttons);
-        TextView how = label("In the other app: add a new storage of type WebDAV (sometimes under \"Network\" or "
-                + "\"Remote\"), enter the values above, choose plain HTTP (no SSL), and leave the folder as /. "
+        TextView how = label("In your file manager look for Remote, Network or FTP (built-in managers such as Xiaomi's) "
+                + "or for a WebDAV option (Solid Explorer, X-plore ...). Add a new server with the host, port, user name "
+                + "and password above, choose plain FTP / HTTP (no SSL, no TLS) and type the host as 127.0.0.1, not localhost. "
                 + "Large files are downloaded to the phone before they start to open. Keep the notification "
                 + "that appears: it is what keeps the bridge alive.", 12, false, GREY);
         how.setPadding(0, dp(6), 0, 0);

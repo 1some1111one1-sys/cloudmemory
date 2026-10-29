@@ -125,9 +125,11 @@ file managers that cannot list the storages of the Files app can instead connect
 WebDAV bridge:
 
 1. Open CloudBridge and tick **Share my clouds with other file managers**.
-2. In the other app add a WebDAV storage with the host, port, user name and password shown there
-   (`http://127.0.0.1:8484/`, plain HTTP, folder `/`).
+2. In the other app add a server with the host, port, user name and password shown there: **FTP** (port 2121,
+   plain FTP, no TLS) for built-in file managers that offer Remote / Network / FTP, or **WebDAV**
+   (`http://127.0.0.1:8484/`, plain HTTP) for Solid Explorer, X-plore and similar. Use `127.0.0.1`, not `localhost`.
 3. Every connected cloud (Google Drive, MEGA, TeraBox, WebDAV, S3) appears as a folder.
 
 The bridge listens on 127.0.0.1 only and requires the password. Files are downloaded to the phone before they
-open (like in the Files app). Source: `core/WebDavServer.java`, tests in `tests/TestWebDavServer.java`.
+open (like in the Files app). Source: `core/WebDavServer.java` and `core/FtpServer.java`, tests in `tests/TestWebDavServer.java` and
+`tests/TestFtpServer.java`.

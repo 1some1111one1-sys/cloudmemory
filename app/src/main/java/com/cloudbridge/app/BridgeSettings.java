@@ -8,6 +8,7 @@ import java.security.SecureRandom;
 public final class BridgeSettings {
     public static final String USER = "cloudbridge";
     public static final int PREFERRED_PORT = 8484;
+    public static final int PREFERRED_FTP_PORT = 2121;
     private static final String PREFS = "cloudbridge_bridge";
     private static final String ALPHABET = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
