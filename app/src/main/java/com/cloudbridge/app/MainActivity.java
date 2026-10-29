@@ -120,112 +120,6 @@ public class MainActivity extends Activity {
         super.onResume();
         refresh();
         refreshBridge();
-        pollSync();
-    }
-
-    /** While a sync runs, keep the cards up to date. */
-    private void pollSync() {
-        if (!SyncRunner.isRunning()) return;
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
-            refresh();
-            pollSync();
-        }, 3000);
-    }
-
-    // ------------------------------------------------------------------ sync folder (real files on the phone)
-
-    private void requestStorageAccess() {
-        if (android.os.Build.VERSION.SDK_INT >= 30) {
-            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:" + getPackageName())));
-        } else {
-            requestPermissions(new String[]{"android.permission.WRITE_EXTERNAL_STORAGE"}, 2);
-        }
-        toast("Allow access to all files for CloudBridge, come back and press Sync again.");
-    }
-
-    private void startSync(Account a) {
-        if (!SyncRunner.hasStorageAccess(this)) {
-            requestStorageAccess();
-            return;
-        }
-        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
-            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
-        }
-        SyncService.start(this, a.id);
-        toast("Syncing " + a.name + "...");
-        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::pollSync, 1000);
-    }
-
-    private void showSyncDialog(final Account a) {
-        final SyncSettings.Entry s = SyncSettings.get(this, a.id);
-        LinearLayout form = new LinearLayout(this);
-        form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(20), dp(8), dp(20), 0);
-
-        TextView what = label("Android lets only a few apps see cloud storage, but every app can see ordinary files. "
-                + "This keeps a real copy of one cloud folder in Internal storage/CloudBridge/" + SyncRunner.localRoot(a).getName()
-                + ", in both directions, so every file manager, gallery and player can use it. It uses phone space "
-                + "and updates when it syncs, not instantly.", 13, false, GREY);
-        what.setPadding(0, 0, 0, dp(8));
-        form.addView(what);
-
-        final CheckBox on = new CheckBox(this);
-        on.setText("Keep a copy of this cloud on the phone");
-        on.setChecked(s.enabled);
-        form.addView(on);
-        final EditText folder = field("Cloud folder to keep on the phone, for example /Photos", s.remoteRoot, InputType.TYPE_CLASS_TEXT);
-        form.addView(folder);
-        final EditText maxMb = field("Skip files bigger than this many MB", String.valueOf(s.maxMb), InputType.TYPE_CLASS_NUMBER);
-        form.addView(maxMb);
-        final CheckBox mirror = new CheckBox(this);
-        mirror.setText("Also delete in the cloud what I delete on the phone (off: deleted files come back)");
-        mirror.setChecked(s.mirrorDeletes);
-        form.addView(mirror);
-        final CheckBox auto = new CheckBox(this);
-        auto.setText("Sync automatically every few hours on Wi-Fi");
-        auto.setChecked(SyncSettings.autoSync(this));
-        form.addView(auto);
-        TextView notes = label("A file changed on both sides keeps both versions (the phone's is saved as \"name (phone copy)\"). "
-                + "If more than half of the files would be deleted at once, nothing is deleted and you are told. "
-                + "Needs the \"All files access\" permission.", 12, false, GREY);
-        notes.setPadding(0, dp(8), 0, 0);
-        form.addView(notes);
-        ScrollView scroller = new ScrollView(this);
-        scroller.addView(form);
-
-        new AlertDialog.Builder(this)
-                .setTitle("Sync \"" + a.name + "\" to the phone")
-                .setView(scroller)
-                .setNegativeButton("Cancel", null)
-                .setNeutralButton("Save", (d, w) -> saveSync(a, s, on, folder, maxMb, mirror, auto, false))
-                .setPositiveButton("Save and sync now", (d, w) -> saveSync(a, s, on, folder, maxMb, mirror, auto, true))
-                .show();
-    }
-
-    private void saveSync(Account a, SyncSettings.Entry s, CheckBox on, EditText folder, EditText maxMb, CheckBox mirror,
-                          CheckBox auto, boolean syncNow) {
-        String root = com.cloudbridge.app.core.Paths.normalize(folder.getText().toString().trim());
-        if (on.isChecked() && root.equals("/")) {
-            toast("Choose a folder in the cloud, for example /Photos. The whole cloud is too much to copy to the phone.");
-            return;
-        }
-        int mb;
-        try {
-            mb = Integer.parseInt(maxMb.getText().toString().trim());
-        } catch (NumberFormatException e) {
-            mb = 500;
-        }
-        s.enabled = on.isChecked();
-        s.remoteRoot = root;
-        s.mirrorDeletes = mirror.isChecked();
-        s.maxMb = Math.max(1, mb);
-        SyncSettings.put(this, a.id, s);
-        SyncSettings.setAutoSync(this, auto.isChecked());
-        SyncJobService.schedule(this, auto.isChecked() && !SyncSettings.enabledAccounts(this).isEmpty());
-        refresh();
-        if (s.enabled && syncNow) startSync(a);
-        else if (s.enabled && !SyncRunner.hasStorageAccess(this)) requestStorageAccess();
     }
 
     // ------------------------------------------------------------------ the bridge for other file managers
@@ -328,21 +222,6 @@ public class MainActivity extends Activity {
             buttons.addView(smallButton("Edit", v -> showAccountDialog(a)));
             buttons.addView(smallButton("Remove", v -> confirmRemove(a)));
             card.addView(buttons);
-
-            SyncSettings.Entry sync = SyncSettings.get(this, a.id);
-            LinearLayout syncRow = new LinearLayout(this);
-            syncRow.setOrientation(LinearLayout.HORIZONTAL);
-            syncRow.addView(smallButton("Sync to phone folder", v -> showSyncDialog(a)));
-            if (sync.enabled) syncRow.addView(smallButton("Sync now", v -> startSync(a)));
-            card.addView(syncRow);
-            if (sync.enabled) {
-                String when = sync.lastTime == 0 ? "not synced yet" : "last run " + android.text.format.DateUtils.getRelativeTimeSpanString(sync.lastTime);
-                TextView status = label("Phone folder: Internal storage/CloudBridge/" + SyncRunner.localRoot(a).getName()
-                        + "\nCloud folder: " + sync.remoteRoot + " (" + when + ")"
-                        + (sync.lastSummary.isEmpty() ? "" : "\n" + sync.lastSummary), 12, false, GREY);
-                status.setPadding(0, dp(4), 0, dp(4));
-                card.addView(status);
-            }
             accountList.addView(card);
         }
     }
