@@ -308,6 +308,9 @@ final class MockMegaServer {
             case "g":
                 getUrl(ex, cmd);
                 break;
+            case "uq":
+                reply(ex, "[{\"cstrg\":2147483648,\"mstrg\":21474836480}]");
+                break;
             case "u":
                 if (uploadQuota > 0) {
                     uploadQuota--;

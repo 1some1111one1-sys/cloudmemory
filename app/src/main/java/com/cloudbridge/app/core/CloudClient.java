@@ -22,4 +22,9 @@ public interface CloudClient {
 
     /** Renames or moves a file or folder. Fails if the destination already exists (WebDAV) or overwrites it (S3). */
     void move(String from, String to, boolean isDir) throws IOException;
+
+    /** Used, total and free space, or null when this kind of service does not say. */
+    default CloudQuota quota() throws IOException {
+        return null;
+    }
 }

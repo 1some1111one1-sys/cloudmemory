@@ -343,6 +343,14 @@ public final class TeraBoxClient implements CloudClient {
         forget();
     }
 
+    @Override
+    public CloudQuota quota() throws IOException {
+        Map<String, Object> m = apiGet("quota", "&checkfree=1&checkexpire=1", "Reading storage");
+        long total = Json.num(m, "total", -1);
+        long used = Json.num(m, "used", -1);
+        return CloudQuota.ofUsedAndTotal(used, total);
+    }
+
     // ---------------------------------------------------------------- listing
 
     private List<Entry> listing(String dir) throws IOException {

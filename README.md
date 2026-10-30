@@ -30,9 +30,26 @@ Not included: OneDrive and Dropbox already ship their own apps that appear in th
 Every build is signed with a fresh key, so to install a newer build you must uninstall the old one
 first, and then add your accounts again.
 
+## The app: sidebar, drives, files
+
+Open the sidebar (the ☰ button) to switch between three pages:
+
+- **Home**: how full your phone and each drive are, how the photo backup is doing, and shortcuts.
+- **Connected drives**: every connected drive with its **free and total space**, buttons to connect more, and
+  for each drive a **photo and video backup** switch. Backup copies every picture and video on the phone into a
+  separate folder of that drive (default `/Photo backup/<album>/...`), newest first. *Wi-Fi only* is on by default.
+  A photo you later delete from the cloud is **never uploaded again** (the app keeps its own list of what was sent),
+  and an existing cloud file is never overwritten.
+- **Files**: the phone's storage, with each cloud drive shown as a folder in its top level. Big icons in a grid
+  (pictures and videos show a preview of themselves), a path bar, search, sort, and new folder. Long-press to select,
+  then **copy, move, download, delete or rename**, between phone folders, from a folder to a cloud, and from a cloud
+  to the phone ("Download" saves into the phone's Download folder). Copying and moving use *Paste here*.
+
+The Files page needs Android's **All files access** (the app asks), and the backup needs access to photos and videos.
+
 ## Use it
 
-1. Open **CloudBridge** and tap *Add cloud storage*.
+1. Open **CloudBridge**, open the sidebar, choose *Connected drives* and tap *Add a drive*.
 2. WebDAV: server URL (for Nextcloud `https://host/remote.php/dav/files/USERNAME`), username, password.
    S3: endpoint (for example `https://s3.amazonaws.com`), region, bucket, access key, secret key.
    For Cloudflare R2 use region `auto`; for Backblaze B2 use the region shown for your bucket.
@@ -109,10 +126,14 @@ change it in the form if your account uses another TeraBox domain.
 ```
 app/src/main/java/com/cloudbridge/app/
   CloudDocumentsProvider.java   the Files-app integration (DocumentsProvider)
-  MainActivity.java             add / edit / remove accounts, Google sign-in
+  MainActivity.java             sidebar, add / edit / remove drives, Google sign-in
+  HomePage, DrivesPage, FilesPage   the three pages; FileIconView / Thumbs draw icons and previews
+  BackupSettings, BackupRunner, BackupService, BackupJobService, MediaScan   the photo backup
+  OpenProvider.java             hands a file to the app that opens it
   TeraBoxLoginActivity.java     web view for signing in on the TeraBox website
   AccountStore.java, SecretBox.java, OkHttpTransport.java
-  core/                         pure Java, no Android: WebDAV, S3 + SigV4, Google OAuth + Drive, MEGA, TeraBox, paths
+  core/                         pure Java, no Android: WebDAV, S3 + SigV4, Google OAuth + Drive, MEGA, TeraBox, paths,
+                                local files, copy/move engine (Transfer), photo backup rules, quotas
 tests/                          protocol tests with in-process mock WebDAV, S3, Google, MEGA and TeraBox servers
 ```
 

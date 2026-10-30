@@ -624,6 +624,14 @@ public final class MegaClient implements CloudClient {
         return o instanceof Map ? (Map<String, Object>) o : null;
     }
 
+    @Override
+    public CloudQuota quota() throws IOException {
+        Object v = api("{\"a\":\"uq\",\"strg\":1}", true, "Reading storage");
+        Map<String, Object> m = asMap(v);
+        if (m == null) return null;
+        return CloudQuota.ofUsedAndTotal(Json.num(m, "cstrg", -1), Json.num(m, "mstrg", -1));
+    }
+
     /** Sends one API command. Returns the reply (a Map, or a Long for plain success). */
     private Object api(String command, boolean withSession, String what) throws IOException {
         int tries = 0;

@@ -111,6 +111,37 @@ public final class WebDavClient implements CloudClient {
         return out;
     }
 
+    private static final byte[] QUOTA_BODY = ("<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+            + "<d:propfind xmlns:d=\"DAV:\"><d:prop><d:quota-available-bytes/><d:quota-used-bytes/></d:prop></d:propfind>")
+            .getBytes(StandardCharsets.UTF_8);
+    private static final java.util.regex.Pattern QUOTA_AVAILABLE =
+            java.util.regex.Pattern.compile("quota-available-bytes[^>]*>\\s*(-?\\d+)\\s*<");
+    private static final java.util.regex.Pattern QUOTA_USED =
+            java.util.regex.Pattern.compile("quota-used-bytes[^>]*>\\s*(-?\\d+)\\s*<");
+
+    /** RFC 4331 quota properties; many servers (Nextcloud, ownCloud, Apache) answer them, some do not. */
+    @Override
+    public CloudQuota quota() throws IOException {
+        String u = url("/");
+        if (!u.endsWith("/")) u += "/";
+        HttpTransport.Response r = send("PROPFIND", u, headers("Depth", "0"), QUOTA_BODY, null, "application/xml");
+        if (r.code != 207 && r.code != 200) {
+            r.close();
+            return null;
+        }
+        String xml = new String(r.readAll(Http.MAX_XML), StandardCharsets.UTF_8);
+        r.close();
+        long free = -1;
+        long used = -1;
+        java.util.regex.Matcher a = QUOTA_AVAILABLE.matcher(xml);
+        if (a.find()) free = Long.parseLong(a.group(1));
+        java.util.regex.Matcher b = QUOTA_USED.matcher(xml);
+        if (b.find()) used = Long.parseLong(b.group(1));
+        if (free < 0 && used < 0) return null;
+        if (free >= 0 && used >= 0) return new CloudQuota(used, used + free, free);
+        return new CloudQuota(used, -1, free);
+    }
+
     @Override
     public CloudEntry stat(String path) throws IOException {
         String p = Paths.normalize(path);

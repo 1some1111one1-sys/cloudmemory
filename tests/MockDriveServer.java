@@ -202,7 +202,11 @@ final class MockDriveServer {
         if (path.equals("/drive/v3/files/root") && method.equals("GET")) {
             json(ex, 200, "{\"id\":" + Json.quote(rootId) + "}");
         } else if (path.equals("/drive/v3/about") && method.equals("GET")) {
-            json(ex, 200, "{\"user\":{\"emailAddress\":\"me@example.com\"}}");
+            if ("storageQuota".equals(q.get("fields"))) {
+                json(ex, 200, "{\"storageQuota\":{\"limit\":\"16106127360\",\"usage\":\"5368709120\"}}");
+            } else {
+                json(ex, 200, "{\"user\":{\"emailAddress\":\"me@example.com\"}}");
+            }
         } else if (path.equals("/drive/v3/files") && method.equals("GET")) {
             list(ex, q);
         } else if (path.equals("/drive/v3/files") && method.equals("POST")) {

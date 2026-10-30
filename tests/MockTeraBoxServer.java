@@ -139,6 +139,9 @@ final class MockTeraBoxServer {
                 case "/api/list":
                     list(ex, q);
                     break;
+                case "/api/quota":
+                    json(ex, "{\"errno\":0,\"total\":1099511627776,\"used\":104857600,\"free\":1099406770176}");
+                    break;
                 case "/api/filemetas":
                     filemetas(ex, q);
                     break;

@@ -27,6 +27,8 @@ final class MockDavServer {
     private final String expectedAuth;
     private final HttpServer server;
     int requests;
+    volatile long quotaAvailable = -1;
+    volatile long quotaUsed = -1;
 
     MockDavServer(File root, String prefix, String user, String pass, boolean absoluteHrefs) throws IOException {
         this.root = root;
@@ -86,6 +88,17 @@ final class MockDavServer {
             File f = new File(root, rel);
             switch (ex.getRequestMethod()) {
                 case "PROPFIND": {
+                    if (new String(reqBody, StandardCharsets.UTF_8).contains("quota-available-bytes")) {
+                        String props = quotaAvailable < 0 ? ""
+                                : "<D:quota-available-bytes>" + quotaAvailable + "</D:quota-available-bytes><D:quota-used-bytes>"
+                                + quotaUsed + "</D:quota-used-bytes>";
+                        String status = quotaAvailable < 0 ? "HTTP/1.1 404 Not Found" : "HTTP/1.1 200 OK";
+                        String xml = "<?xml version=\"1.0\" encoding=\"utf-8\"?><D:multistatus xmlns:D=\"DAV:\"><D:response><D:href>"
+                                + rawPath + "</D:href><D:propstat><D:prop>" + props + "</D:prop><D:status>" + status
+                                + "</D:status></D:propstat></D:response></D:multistatus>";
+                        send(ex, 207, "application/xml; charset=utf-8", xml.getBytes(StandardCharsets.UTF_8));
+                        return;
+                    }
                     if (!f.exists()) {
                         send(ex, 404, "text/plain", "missing".getBytes());
                         return;

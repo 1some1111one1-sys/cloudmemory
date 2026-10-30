@@ -487,6 +487,16 @@ public final class GoogleDriveClient implements CloudClient {
         }
     }
 
+    @Override
+    public CloudQuota quota() throws IOException {
+        Map<String, Object> m = getJson(api + "/drive/v3/about?fields=storageQuota", "Reading storage");
+        Map<String, Object> q = Json.obj(m, "storageQuota");
+        if (q == null) return null;
+        long used = Json.num(q, "usage", -1);
+        long limit = Json.num(q, "limit", -1);     // missing for accounts with unlimited storage
+        return CloudQuota.ofUsedAndTotal(used, limit);
+    }
+
     // ---------------------------------------------------------------- HTTP
 
     private Map<String, Object> getJson(String url, String what) throws IOException {

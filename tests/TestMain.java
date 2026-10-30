@@ -104,6 +104,9 @@ public final class TestMain {
         TestTeraBox.runAll();
         TestWebDavServer.runAll();
         TestFtpServer.runAll();
+        TestQuota.runAll();
+        TestFileOps.runAll();
+        TestFormat.runAll();
         System.out.println(passed + " checks passed, " + failed + " failed");
         System.exit(failed == 0 ? 0 : 1);
     }

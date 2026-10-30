@@ -8,7 +8,6 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.net.Uri;
 import android.os.Bundle;
-import android.provider.DocumentsContract;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
@@ -17,6 +16,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
@@ -26,25 +26,36 @@ import com.cloudbridge.app.core.Account;
 import com.cloudbridge.app.core.CloudClients;
 import com.cloudbridge.app.core.GoogleDriveClient;
 import com.cloudbridge.app.core.GoogleOAuth;
-import com.cloudbridge.app.core.HttpTransport;
 import com.cloudbridge.app.core.LoopbackReceiver;
 import com.cloudbridge.app.core.MegaClient;
 import com.cloudbridge.app.core.TeraBoxClient;
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
-import java.util.List;
 
-/** Manage the connected cloud accounts. Everything else happens in the system Files app. */
-public class MainActivity extends Activity {
-    private static final HttpTransport TRANSPORT = new OkHttpTransport();
-    private static final int BLUE = Color.parseColor("#1E88E5");
+/**
+ * The main screen: a sidebar with Home, Connected drives and Files, and the page that is chosen. It also holds the
+ * dialog that adds or edits a drive.
+ */
+public class MainActivity extends Activity implements Host {
     private static final int GREY = Color.parseColor("#5F6368");
-
     private static final int REQUEST_TERABOX = 4711;
+    private static final int REQUEST_MEDIA = 31;
 
-    private LinearLayout accountList;
-    private LinearLayout bridgeBox;
+    private FrameLayout root;
+    private FrameLayout content;
+    private View scrim;
+    private LinearLayout drawer;
+    private final LinearLayout[] drawerRows = new LinearLayout[3];
+    private boolean drawerOpen;
+    private int drawerWidth;
+
+    private HomePage home;
+    private DrivesPage drives;
+    private FilesPage files;
+    private Page current;
     private java.util.function.Consumer<String> pendingCookie;
+    private Runnable pendingMedia;
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -59,197 +70,173 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setTitle("CloudBridge");
+        drawerWidth = Math.min(dp(300), getResources().getDisplayMetrics().widthPixels * 82 / 100);
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout page = new LinearLayout(this);
-        page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(dp(20), dp(16), dp(20), dp(32));
-        scroll.addView(page);
-        // Targeting Android 15+ draws behind the navigation bar; keep the bottom of the page reachable.
-        scroll.setOnApplyWindowInsetsListener((v, insets) -> {
-            v.setPadding(0, 0, 0, insets.getSystemWindowInsetBottom());
+        root = new FrameLayout(this);
+        root.setBackgroundColor(Ui.PAGE);
+        // Targeting Android 15+ draws behind the system bars; keep the pages clear of them.
+        root.setOnApplyWindowInsetsListener((v, insets) -> {
+            v.setPadding(0, insets.getSystemWindowInsetTop(), 0, insets.getSystemWindowInsetBottom());
             return insets;
         });
+        content = new FrameLayout(this);
+        root.addView(content, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
 
-        page.addView(label("Your cloud storage, as a folder on your phone", 20, true, Color.BLACK));
-        TextView intro = label("Connect Google Drive, MEGA, TeraBox (experimental), a WebDAV server (Nextcloud, ownCloud, Synology and others) or "
-                + "an S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2, MinIO and others). It then appears in "
-                + "the Files app and in every app's \"choose file\" screen, where you can browse, open, copy, "
-                + "rename, delete and save files.", 14, false, GREY);
-        intro.setPadding(0, dp(8), 0, dp(16));
-        page.addView(intro);
+        scrim = new View(this);
+        scrim.setBackgroundColor(0x66000000);
+        scrim.setVisibility(View.GONE);
+        scrim.setOnClickListener(v -> closeDrawer());
+        root.addView(scrim, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
 
-        Button add = new Button(this);
-        add.setText("Add cloud storage");
-        add.setOnClickListener(v -> showAccountDialog(null));
-        page.addView(add);
+        buildDrawer();
+        root.addView(drawer, new FrameLayout.LayoutParams(drawerWidth, Ui.MATCH));
+        drawer.setTranslationX(-drawerWidth);
+        setContentView(root);
 
-        accountList = new LinearLayout(this);
-        accountList.setOrientation(LinearLayout.VERTICAL);
-        accountList.setPadding(0, dp(16), 0, 0);
-        page.addView(accountList);
-
-        bridgeBox = new LinearLayout(this);
-        bridgeBox.setOrientation(LinearLayout.VERTICAL);
-        bridgeBox.setPadding(dp(14), dp(12), dp(14), dp(12));
-        bridgeBox.setBackgroundColor(Color.parseColor("#E8F0FE"));
-        LinearLayout.LayoutParams bridgeParams = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-        bridgeParams.topMargin = dp(20);
-        bridgeBox.setLayoutParams(bridgeParams);
-        page.addView(bridgeBox);
-
-        TextView notes = label("Good to know\n"
-                + "• A file is downloaded to your phone when you open it, and uploaded when the app that edited it "
-                + "closes it.\n"
-                + "• Passwords and keys are stored encrypted with the Android Keystore.\n"
-                + "• Google Drive needs a free client ID from your own Google Cloud project (the Add screen "
-                + "explains how).\n"
-                + "• MEGA signs in with your e-mail and password; its files are decrypted on your phone.\n"
-                + "• TeraBox is unofficial and experimental: it has no public API, so it may stop working "
-                + "whenever TeraBox changes its website.\n"
-                + "• OneDrive and Dropbox have their own apps that already appear in the Files app.", 13, false, GREY);
-        notes.setPadding(0, dp(24), 0, 0);
-        page.addView(notes);
-
-        setContentView(scroll);
+        home = new HomePage(this);
+        drives = new DrivesPage(this);
+        files = new FilesPage(this);
+        show(home, 0);
+        cleanOpenedFiles();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        refresh();
-        refreshBridge();
+        BackupJobService.update(this);
+        if (current != null) current.onShow();
     }
 
-    // ------------------------------------------------------------------ the bridge for other file managers
+    @Override
+    public void onBackPressed() {
+        if (drawerOpen) {
+            closeDrawer();
+        } else if (current != null && current.onBack()) {
+            // the page used it
+        } else if (current != home) {
+            goHome();
+        } else {
+            super.onBackPressed();
+        }
+    }
 
-    private void refreshBridge() {
-        bridgeBox.removeAllViews();
-        boolean on = BridgeSettings.enabled(this);
-        final int port = BridgeService.port();
-        bridgeBox.addView(label("Use your clouds in other file managers", 17, true, Color.BLACK));
-        TextView what = label("Most file managers cannot list the storages of the Files app, but many can connect to "
-                + "an FTP or WebDAV server. Switch this on and add the address below in your file manager: every cloud "
-                + "above then shows up as a folder. It works only on this phone, needs no root, and covers every cloud "
-                + "type, TeraBox included.", 13, false, GREY);
-        what.setPadding(0, dp(6), 0, dp(6));
-        bridgeBox.addView(what);
+    // ------------------------------------------------------------------ the sidebar
 
-        CheckBox toggle = new CheckBox(this);
-        toggle.setText("Share my clouds with other file managers");
-        toggle.setChecked(on);
-        toggle.setOnClickListener(v -> {
-            boolean wanted = ((CheckBox) v).isChecked();
-            if (wanted) {
-                if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != 0) {
-                    requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, 1);
-                }
-                BridgeService.start(this);
-            } else {
-                BridgeService.stop(this);
-            }
-            refreshBridge();
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::refreshBridge, 800);
+    private void buildDrawer() {
+        drawer = new LinearLayout(this);
+        drawer.setOrientation(LinearLayout.VERTICAL);
+        drawer.setBackgroundColor(Ui.PAGE);
+        drawer.setClickable(true);
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.VERTICAL);
+        header.setPadding(dp(24), dp(28), dp(24), dp(20));
+        header.setBackgroundColor(Ui.ACCENT);
+        IconButton logo = new IconButton(this, IconButton.Glyph.CLOUD);
+        logo.setColor(Color.WHITE);
+        logo.setClickable(false);
+        header.addView(logo, Ui.lp(dp(44), dp(44)));
+        header.addView(Ui.text(this, "CloudBridge", 22, true, Color.WHITE));
+        header.addView(Ui.text(this, "Your clouds, like folders on your phone", 13, false, 0xCCFFFFFF));
+        drawer.addView(header, Ui.lp(Ui.MATCH, Ui.WRAP));
+
+        drawerRows[0] = drawerItem(IconButton.Glyph.HOME, "Home", () -> goHome());
+        drawerRows[1] = drawerItem(IconButton.Glyph.CLOUD, "Connected drives", () -> goDrives());
+        drawerRows[2] = drawerItem(IconButton.Glyph.FOLDER, "Files", () -> goFiles(null));
+        for (LinearLayout r : drawerRows) {
+            drawer.addView(r, Ui.lpMargin(Ui.MATCH, dp(52), dp(10), dp(4), dp(10), 0));
+        }
+    }
+
+    private LinearLayout drawerItem(IconButton.Glyph g, String label, final Runnable go) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(14), 0, dp(14), 0);
+        IconButton icon = new IconButton(this, g);
+        icon.setClickable(false);
+        row.addView(icon, Ui.lp(dp(32), dp(32)));
+        TextView t = Ui.text(this, label, 16, true, Ui.INK);
+        t.setPadding(dp(16), 0, 0, 0);
+        row.addView(t);
+        row.setOnClickListener(v -> {
+            closeDrawer();
+            go.run();
         });
-        bridgeBox.addView(toggle);
-        if (!on) return;
-
-        if (port == 0) {
-            String err = BridgeService.lastError();
-            bridgeBox.addView(label(err.isEmpty() ? "Starting..." : "Could not start: " + err, 13, false, GREY));
-            return;
-        }
-        final String password = BridgeSettings.password(this);
-        final String address = "http://127.0.0.1:" + port + "/";
-        TextView details = label("Server (host): 127.0.0.1\nUser name: " + BridgeSettings.USER + "\nPassword: " + password
-                + "\n\nFTP (for built-in file managers)\nPort: " + BridgeService.ftpPort()
-                + "\n\nWebDAV (for Solid Explorer, X-plore ...)\nPort: " + port + "\nAddress: " + address, 14, false, Color.BLACK);
-        details.setPadding(0, dp(8), 0, dp(4));
-        details.setTextIsSelectable(true);
-        bridgeBox.addView(details);
-        LinearLayout buttons = new LinearLayout(this);
-        buttons.setOrientation(LinearLayout.HORIZONTAL);
-        buttons.addView(smallButton("Copy address", v -> copy("Address", address)));
-        buttons.addView(smallButton("Copy password", v -> copy("Password", password)));
-        buttons.addView(smallButton("New password", v -> {
-            BridgeSettings.newPassword(this);
-            BridgeService.restart(this);   // so the running server uses the new password
-            refreshBridge();
-            new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(this::refreshBridge, 800);
-        }));
-        bridgeBox.addView(buttons);
-        TextView how = label("In your file manager look for Remote, Network or FTP (built-in managers such as Xiaomi's) "
-                + "or for a WebDAV option (Solid Explorer, X-plore ...). Add a new server with the host, port, user name "
-                + "and password above, choose plain FTP / HTTP (no SSL, no TLS) and type the host as 127.0.0.1, not localhost. "
-                + "Large files are downloaded to the phone before they start to open. Keep the notification "
-                + "that appears: it is what keeps the bridge alive.", 12, false, GREY);
-        how.setPadding(0, dp(6), 0, 0);
-        bridgeBox.addView(how);
+        return row;
     }
 
-    private void copy(String what, String text) {
-        android.content.ClipboardManager cm = (android.content.ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
-        cm.setPrimaryClip(android.content.ClipData.newPlainText(what, text));
-        toast(what + " copied");
-    }
-
-    // ------------------------------------------------------------------ account list
-
-    private void refresh() {
-        accountList.removeAllViews();
-        List<Account> accounts = AccountStore.load(this);
-        if (accounts.isEmpty()) {
-            accountList.addView(label("Nothing connected yet.", 14, false, GREY));
-            return;
-        }
-        for (final Account a : accounts) {
-            LinearLayout card = new LinearLayout(this);
-            card.setOrientation(LinearLayout.VERTICAL);
-            card.setPadding(dp(14), dp(12), dp(14), dp(8));
-            card.setBackgroundColor(Color.parseColor("#F1F3F4"));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            lp.bottomMargin = dp(12);
-            card.setLayoutParams(lp);
-
-            card.addView(label(a.name, 17, true, Color.BLACK));
-            card.addView(label(a.summary(), 13, false, GREY));
-
-            LinearLayout buttons = new LinearLayout(this);
-            buttons.setOrientation(LinearLayout.HORIZONTAL);
-            buttons.addView(smallButton("Open in Files", v -> openInFiles(a)));
-            buttons.addView(smallButton("Edit", v -> showAccountDialog(a)));
-            buttons.addView(smallButton("Remove", v -> confirmRemove(a)));
-            card.addView(buttons);
-            accountList.addView(card);
+    private void highlight(int index) {
+        for (int i = 0; i < drawerRows.length; i++) {
+            boolean on = i == index;
+            Ui.round(drawerRows[i], on ? Ui.SELECTED : Color.TRANSPARENT, 26);
+            ((IconButton) drawerRows[i].getChildAt(0)).setColor(on ? Ui.ACCENT : Ui.ICON);
+            ((TextView) drawerRows[i].getChildAt(1)).setTextColor(on ? Ui.ACCENT : Ui.INK);
         }
     }
 
-    private Button smallButton(String text, View.OnClickListener l) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setOnClickListener(l);
-        return b;
+    @Override
+    public void openDrawer() {
+        if (drawerOpen) return;
+        drawerOpen = true;
+        scrim.setVisibility(View.VISIBLE);
+        drawer.animate().translationX(0).setDuration(180).start();
     }
 
-    private void openInFiles(Account a) {
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        // Built by hand: DocumentsContract.buildRootUri is not public API on every Android version.
-        i.setDataAndType(Uri.parse("content://" + CloudDocumentsProvider.AUTHORITY + "/root/" + Uri.encode(a.id)),
-                DocumentsContract.Root.MIME_TYPE_ITEM);
-        try {
-            startActivity(i);
-        } catch (Exception e) {
-            toast("Open the Files app, tap the menu (☰) and choose \"" + a.name + "\".");
-        }
+    private void closeDrawer() {
+        if (!drawerOpen) return;
+        drawerOpen = false;
+        scrim.setVisibility(View.GONE);
+        drawer.animate().translationX(-drawerWidth).setDuration(160).start();
     }
 
-    private void confirmRemove(final Account a) {
+    private void show(Page p, int index) {
+        current = p;
+        content.removeAllViews();
+        content.addView(p.view(), new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+        highlight(index);
+        p.onShow();
+    }
+
+    // ------------------------------------------------------------------ Host
+
+    @Override
+    public Activity activity() {
+        return this;
+    }
+
+    @Override
+    public void goHome() {
+        show(home, 0);
+    }
+
+    @Override
+    public void goDrives() {
+        show(drives, 1);
+    }
+
+    @Override
+    public void goFiles(Account driveOrNull) {
+        if (driveOrNull != null) files.open(driveOrNull);
+        show(files, 2);
+    }
+
+    @Override
+    public void addDrive() {
+        showAccountDialog(null);
+    }
+
+    @Override
+    public void editDrive(Account a) {
+        showAccountDialog(a);
+    }
+
+    @Override
+    public void removeDrive(final Account a) {
         new AlertDialog.Builder(this)
                 .setTitle("Remove \"" + a.name + "\"?")
-                .setMessage("It disappears from the Files app. Your files in the cloud are not deleted.")
+                .setMessage("It disappears from CloudBridge and the Files app, and its photo backup stops. Your files "
+                        + "in the cloud are not deleted.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Remove", (d, w) -> {
                     try {
@@ -258,15 +245,63 @@ public class MainActivity extends Activity {
                         toast("Could not remove: " + e.getMessage());
                         return;
                     }
+                    BackupSettings.forget(this, a.id);
                     storageChanged();
                 })
                 .show();
     }
 
+    @Override
+    public void askMediaAccess(Runnable then) {
+        if (MediaScan.hasPermission(this)) {
+            then.run();
+            return;
+        }
+        pendingMedia = then;
+        requestPermissions(MediaScan.permissions(), REQUEST_MEDIA);
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_MEDIA) {
+            Runnable r = pendingMedia;
+            pendingMedia = null;
+            if (MediaScan.hasPermission(this)) {
+                if (r != null) r.run();
+            } else {
+                toast("Photo backup needs permission to read your photos and videos.");
+            }
+        }
+        if (current != null) current.onShow();
+    }
+
+    @Override
+    public void changed() {
+        if (drives != null) drives.refresh();
+        if (files != null) files.accountsChanged();
+        if (current == home) home.onShow();
+    }
+
     private void storageChanged() {
+        Clients.reset();
         CloudDocumentsProvider.clearCaches();
         getContentResolver().notifyChange(Uri.parse("content://" + CloudDocumentsProvider.AUTHORITY + "/root"), null);
-        refresh();
+        BackupJobService.update(this);
+        changed();
+    }
+
+    /** Files that were downloaded only to be opened are not kept for long. */
+    private void cleanOpenedFiles() {
+        final File dir = new File(getCacheDir(), "open");
+        new Thread(() -> deleteOld(dir, System.currentTimeMillis() - 24L * 3600 * 1000)).start();
+    }
+
+    private static void deleteOld(File f, long before) {
+        File[] kids = f.listFiles();
+        if (kids != null) for (File k : kids) deleteOld(k, before);
+        if (f.getName().equals("open")) return;
+        if (f.lastModified() < before) f.delete();
     }
 
     // ------------------------------------------------------------------ add / edit dialog
@@ -452,7 +487,7 @@ public class MainActivity extends Activity {
             a.name = name.getText().toString().trim();
             if (a.name.isEmpty()) a.name = defaultName(a);
             try {
-                CloudClients.create(a, TRANSPORT);
+                CloudClients.create(a, Clients.TRANSPORT);
             } catch (IllegalArgumentException e) {
                 return e.getMessage();
             }
@@ -519,11 +554,11 @@ public class MainActivity extends Activity {
                 String warning = null;
                 try {
                     String code = rx.awaitCode(state, 5 * 60 * 1000L);
-                    GoogleOAuth.Tokens t = GoogleOAuth.exchange(TRANSPORT, GoogleOAuth.TOKEN_URL, clientId,
+                    GoogleOAuth.Tokens t = GoogleOAuth.exchange(Clients.TRANSPORT, GoogleOAuth.TOKEN_URL, clientId,
                             clientSecret, code, verifier, redirect);
                     token = t.refreshToken;
                     try {
-                        mail = new GoogleDriveClient(TRANSPORT, clientId, clientSecret, token).signedInEmail();
+                        mail = new GoogleDriveClient(Clients.TRANSPORT, clientId, clientSecret, token).signedInEmail();
                     } catch (Exception e) {
                         warning = e.getMessage();
                     }
@@ -580,11 +615,11 @@ public class MainActivity extends Activity {
                 try {
                     if (snapshot.type == Account.Type.MEGA) {
                         // Sign in for real (this is where a two-factor code is used) and keep the session.
-                        newSession[0] = MegaClient.signIn(TRANSPORT, snapshot.username, snapshot.secret, twoFactor,
+                        newSession[0] = MegaClient.signIn(Clients.TRANSPORT, snapshot.username, snapshot.secret, twoFactor,
                                 snapshot.clientId);
                         snapshot.clientSecret = newSession[0];
                     }
-                    CloudClients.create(snapshot, TRANSPORT).list("/");
+                    CloudClients.create(snapshot, Clients.TRANSPORT).list("/");
                 } catch (Exception e) {
                     failure = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
                 }
