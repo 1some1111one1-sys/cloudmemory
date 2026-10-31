@@ -245,6 +245,19 @@ public class MainActivity extends Activity implements Host {
     }
 
     @Override
+    public void openInSystemFiles(Account a) {
+        Intent i = new Intent(Intent.ACTION_VIEW);
+        // Built by hand: DocumentsContract.buildRootUri is not public API on every Android version.
+        i.setDataAndType(Uri.parse("content://" + CloudDocumentsProvider.AUTHORITY + "/root/" + Uri.encode(a.id)),
+                android.provider.DocumentsContract.Root.MIME_TYPE_ITEM);
+        try {
+            startActivity(i);
+        } catch (Exception e) {
+            toast("Open the Files app, tap the menu and choose \"" + a.name + "\".");
+        }
+    }
+
+    @Override
     public void addDrive() {
         showAccountDialog(null);
     }

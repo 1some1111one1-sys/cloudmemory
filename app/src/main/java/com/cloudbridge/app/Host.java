@@ -16,6 +16,9 @@ interface Host {
     /** Opens the Files page, inside the given drive (or on the phone when null). */
     void goFiles(Account driveOrNull);
 
+    /** Opens a drive in the phone's own Files app. */
+    void openInSystemFiles(Account a);
+
     void addDrive();
 
     void editDrive(Account a);

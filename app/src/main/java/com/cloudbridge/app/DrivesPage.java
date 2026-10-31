@@ -169,9 +169,13 @@ final class DrivesPage extends Page {
         LinearLayout buttons = new LinearLayout(act);
         buttons.setOrientation(LinearLayout.HORIZONTAL);
         buttons.addView(textButton("Browse", () -> host.goFiles(a)));
-        buttons.addView(textButton("Edit", () -> host.editDrive(a)));
-        buttons.addView(textButton("Remove", () -> host.removeDrive(a)));
+        buttons.addView(textButton("Open in Files app", () -> host.openInSystemFiles(a)));
         card.addView(buttons);
+        LinearLayout manage = new LinearLayout(act);
+        manage.setOrientation(LinearLayout.HORIZONTAL);
+        manage.addView(textButton("Edit", () -> host.editDrive(a)));
+        manage.addView(textButton("Remove", () -> host.removeDrive(a)));
+        card.addView(manage);
 
         card.addView(backupSection(a));
         return card;
