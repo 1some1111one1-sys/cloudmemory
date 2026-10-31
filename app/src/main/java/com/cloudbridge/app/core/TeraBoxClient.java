@@ -525,6 +525,18 @@ public final class TeraBoxClient implements CloudClient {
                     break;
                 }
             }
+            for (CloudEntry e : top) {
+                if (file != null || !e.dir) continue;
+                try {
+                    for (CloudEntry child : list(e.path)) {
+                        if (!child.dir) {
+                            file = child;
+                            break;
+                        }
+                    }
+                } catch (IOException ignored) {
+                }
+            }
         }
         if (file == null) {
             r.append(" no file in the top folder to try (put a small file there and run the test again)\n");
@@ -573,8 +585,7 @@ public final class TeraBoxClient implements CloudClient {
     private List<String> uploadCandidates(String path, String uploadId) {
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
         if (state.uploadBase != null) out.add(state.uploadBase);
-        String located = state.uploadBase != null ? null : locateUploadHost(path, uploadId);
-        if (located != null) out.add(located);
+        if (state.uploadBase == null) out.addAll(locateUploadHosts(path, uploadId));
         if (!localSite()) {
             String root = registrable(siteHost);
             out.add(scheme + "://c-jp." + root);
@@ -591,32 +602,37 @@ public final class TeraBoxClient implements CloudClient {
         return good;
     }
 
-    /** Asks TeraBox which server takes the upload; null when it does not say. */
-    private String locateUploadHost(String path, String uploadId) {
+    /**
+     * Asks TeraBox which servers take the upload. The answer of the API server itself comes first: it names the
+     * data centre that holds this upload (another data centre answers "user not exists").
+     */
+    private List<String> locateUploadHosts(String path, String uploadId) {
         List<String> asks = new ArrayList<>();
         if (localSite()) {
             asks.add(site);
         } else {
+            asks.add(base());
             asks.add(scheme + "://d." + registrable(siteHost));
             asks.add(scheme + "://d.terabox.com");
         }
+        List<String> found = new ArrayList<>();
         for (String base : asks) {
             try {
                 Map<String, Object> m = rawGet(base + "/rest/2.0/pcs/file?method=locateupload&appid=" + APP_ID + "&path=" + enc(path)
                         + "&uploadid=" + enc(uploadId) + "&upload_version=2.0", "Finding the upload server");
                 String host = Json.str(m, "host");
-                if (host == null) {
-                    List<Object> servers = Json.list(m, "servers");
-                    if (!servers.isEmpty() && servers.get(0) instanceof Map) host = Json.str(asMap(servers.get(0)), "server");
+                if (host != null && !host.isEmpty()) found.add(host.contains("://") ? host : scheme + "://" + host);
+                for (Object o : Json.list(m, "servers")) {
+                    if (!(o instanceof Map)) continue;
+                    String server = Json.str(asMap(o), "server");
+                    if (server != null && server.startsWith("https://") && !found.contains(server)) found.add(server);
                 }
-                if (host != null && !host.isEmpty()) {
-                    return host.contains("://") ? host : scheme + "://" + host;
-                }
+                if (!found.isEmpty()) return found;
             } catch (IOException ignored) {
                 // try the next one
             }
         }
-        return null;
+        return found;
     }
 
     /** Sends one part to the first server that takes it; returns the server that did. */
