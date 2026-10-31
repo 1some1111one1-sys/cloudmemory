@@ -19,6 +19,7 @@ final class TestTeraBox {
 
     static void runAll() {
         run("terabox browse + download", TestTeraBox::testBrowse);
+        run("terabox self test", TestTeraBox::testDiagnose);
         run("terabox changes", TestTeraBox::testChanges);
         run("terabox errors", TestTeraBox::testErrors);
     }
@@ -73,6 +74,23 @@ final class TestTeraBox {
             c.list("/Docs");
             c.stat("/Docs/a.txt");
             eq("listings are cached briefly", before, s.log.size());
+        } finally {
+            s.stop();
+        }
+    }
+
+    private static void testDiagnose() throws Exception {
+        MockTeraBoxServer s = new MockTeraBoxServer();
+        try {
+            s.dir("/Docs");
+            s.put("/a.txt", "hello tera".getBytes());
+            TeraBoxClient c = client(s);
+            String report = c.diagnose();
+            check("diagnose lists", report.contains("List: ok"));
+            check("diagnose tests the upload", report.contains("precreate: ok") && report.contains("upload to"));
+            check("diagnose tests the download", report.contains("download address") && report.contains("first request: HTTP"));
+            check("diagnose leaves no file behind", !s.files.containsKey("/.cloudbridge-test"));
+            check("diagnose does not print the cookie", !report.contains("GOODSESSION"));
         } finally {
             s.stop();
         }

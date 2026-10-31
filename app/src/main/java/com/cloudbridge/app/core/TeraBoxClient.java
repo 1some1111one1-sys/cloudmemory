@@ -416,6 +416,132 @@ public final class TeraBoxClient implements CloudClient {
         state.listedAt.clear();
     }
 
+    // ---------------------------------------------------------------- self test
+
+    /** One request, answered in a line: the status and the start of the answer, or why it failed. */
+    private String probe(HttpTransport.Request req) {
+        try {
+            decorate(req, req.url);
+            HttpTransport.Response r = http.execute(req);
+            String text = readText(r, 4096).replaceAll("\\s+", " ").trim();
+            String type = r.header("content-type");
+            return "HTTP " + r.code + (type == null ? "" : " " + type.replaceAll(";.*", "")) + (text.isEmpty() ? ""
+                    : " | " + text.substring(0, Math.min(text.length(), 160)));
+        } catch (IOException e) {
+            return "error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Tries every step of using TeraBox (listing, the servers, an upload of one byte that is never saved, a download)
+     * and reports what each one answered, so a failure can be traced to its step.
+     */
+    public String diagnose() {
+        StringBuilder r = new StringBuilder();
+        String root = registrable(siteHost);
+        r.append("TeraBox test, site ").append(siteHost).append("\n");
+        List<CloudEntry> top = null;
+        try {
+            top = list("/");
+            r.append("List: ok, ").append(top.size()).append(" items in the top folder\n");
+        } catch (IOException e) {
+            r.append("List: FAILED ").append(e.getMessage()).append("\n");
+        }
+        r.append(diagnostics().trim()).append("\n\nServers (a plain request to each):\n");
+        List<String> hosts = new ArrayList<>();
+        for (String h : new String[]{"www." + root, "dm." + root, "d." + root, "c-jp." + root, "c." + root,
+                "d.terabox.com", "c-jp.terabox.com", "c.terabox.com", "data.terabox.com"}) {
+            if (!hosts.contains(h)) hosts.add(h);
+        }
+        if (localSite()) {
+            hosts.clear();
+            hosts.add(siteHost);
+        }
+        for (String h : hosts) r.append(" ").append(h).append(": ").append(probe(new HttpTransport.Request("GET", scheme + "://" + h + "/"))).append("\n");
+
+        r.append("\nUpload test (one byte, never saved):\n");
+        String uploadId = null;
+        try {
+            String p = "/.cloudbridge-test";
+            Map<String, Object> pre = apiPost("precreate", "", "path=" + enc(p) + "&target_path=" + enc("/") + "&autoinit=1&isdir=0&size=1"
+                    + "&block_list=" + enc("[\"" + md5(new byte[]{'x'}, 1) + "\"]") + "&rtype=1&local_mtime=" + (System.currentTimeMillis() / 1000),
+                    "Starting a test upload");
+            uploadId = Json.str(pre, "uploadid");
+            r.append(" precreate: ok, upload id ").append(uploadId == null ? "none" : "received").append("\n");
+        } catch (IOException e) {
+            r.append(" precreate: FAILED ").append(e.getMessage()).append("\n");
+        }
+        if (uploadId != null) {
+            List<String> asks = new ArrayList<>();
+            if (localSite()) {
+                asks.add(site);
+            } else {
+                asks.add(scheme + "://d." + root);
+                asks.add(scheme + "://d.terabox.com");
+                asks.add(base());
+            }
+            for (String b : asks) {
+                r.append(" locateupload on ").append(b.replaceAll("^[a-z]+://", "")).append(": ").append(probe(new HttpTransport.Request("GET",
+                        b + "/rest/2.0/pcs/file?method=locateupload&appid=" + APP_ID + "&path=" + enc("/.cloudbridge-test")
+                                + "&uploadid=" + enc(uploadId) + "&upload_version=2.0"))).append("\n");
+            }
+            for (String b : uploadCandidates("/.cloudbridge-test", uploadId)) {
+                String boundary = "----CloudBridgeTest";
+                byte[] body = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"blob\"\r\n"
+                        + "Content-Type: application/octet-stream\r\n\r\nx\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.ISO_8859_1);
+                String url = b + "/rest/2.0/pcs/superfile2?method=upload&type=tmpfile&app_id=" + APP_ID
+                        + "&channel=dubox&clienttype=0&web=1&path=" + enc("/.cloudbridge-test") + "&uploadid=" + enc(uploadId)
+                        + "&uploadsign=0&partseq=0";
+                HttpTransport.Request req = new HttpTransport.Request("POST", url).body(body, "multipart/form-data; boundary=" + boundary);
+                req.header("Origin", site);
+                req.header("Referer", site + "/main?category=all");
+                r.append(" upload to ").append(b.replaceAll("^[a-z]+://", "")).append(": ").append(probe(req)).append("\n");
+            }
+        }
+
+        r.append("\nDownload test:\n");
+        CloudEntry file = null;
+        if (top != null) {
+            for (CloudEntry e : top) {
+                if (!e.dir) {
+                    file = e;
+                    break;
+                }
+            }
+        }
+        if (file == null) {
+            r.append(" no file in the top folder to try (put a small file there and run the test again)\n");
+        } else {
+            try {
+                Map<String, Object> m = apiGet("filemetas", "&target=" + enc("[" + Json.quote(file.path) + "]") + "&dlink=1", "Downloading");
+                List<Object> info = Json.list(m, "info");
+                String dlink = info.isEmpty() || !(info.get(0) instanceof Map) ? null : Json.str(asMap(info.get(0)), "dlink");
+                if (dlink == null) {
+                    r.append(" filemetas: no download address (").append(m.keySet()).append(")\n");
+                } else {
+                    r.append(" download address on ").append(URI.create(dlink).getHost()).append("\n");
+                    HttpTransport.Request req = new HttpTransport.Request("GET", dlink);
+                    req.header("User-Agent", UA);
+                    req.header("Referer", site + "/main?category=all");
+                    req.header("Origin", site);
+                    req.header("Range", "bytes=0-0");
+                    if (sameFamily(dlink)) req.header("Cookie", cookie);
+                    try {
+                        HttpTransport.Response resp = http.execute(req);
+                        String loc = resp.header("location");
+                        r.append(" first request: HTTP ").append(resp.code).append(loc == null ? "" : " -> " + URI.create(loc).getHost()).append("\n");
+                        resp.close();
+                    } catch (IOException e) {
+                        r.append(" first request: error ").append(e.getMessage()).append("\n");
+                    }
+                }
+            } catch (IOException e) {
+                r.append(" filemetas: FAILED ").append(e.getMessage()).append("\n");
+            }
+        }
+        return r.toString();
+    }
+
     // ---------------------------------------------------------------- upload helpers
 
     /** True for a site that is a local test server, where there is only one host. */
@@ -436,6 +562,8 @@ public final class TeraBoxClient implements CloudClient {
             String root = registrable(siteHost);
             out.add(scheme + "://c-jp." + root);
             out.add(scheme + "://c-jp.terabox.com");
+            out.add(base());
+            out.add(scheme + "://c.terabox.com");
         }
         out.add(site);
         // Servers that already failed for this account are tried last, so a dead one is not retried for every file.
@@ -478,26 +606,28 @@ public final class TeraBoxClient implements CloudClient {
     private String sendBlock(List<String> bases, String path, String uploadId, int index, byte[] buf, int len, String md5)
             throws IOException {
         IOException last = null;
+        List<String> notes = new ArrayList<>();
         for (String b : bases) {
+            String name = b.replaceAll("^[a-z]+://", "");
             try {
                 sendBlockTo(b, path, uploadId, index, buf, len, md5);
                 state.badUploadBases.remove(b);
                 return b;
             } catch (CloudException e) {
-                // A wrong server answers 403 / 404 / 5xx. A real answer from TeraBox (a JSON error) is final.
+                // A wrong server answers 403 / 404 / 405 / 5xx. A real answer from TeraBox (a JSON error) is final.
                 if (e.status != 403 && e.status != 404 && e.status != 405 && e.status / 100 != 5) throw e;
                 last = new CloudException(e.status, e.getMessage());
+                notes.add(name + ": HTTP " + e.status);
                 state.badUploadBases.add(b);
             } catch (IOException e) {
                 last = e;           // the server does not exist or cannot be reached
+                notes.add(name + ": " + String.valueOf(e.getMessage()).replaceAll("^Unable to resolve host.*", "no such server"));
                 state.badUploadBases.add(b);
             }
         }
-        if (last instanceof CloudException && bases.size() > 1) {
-            throw new CloudException(((CloudException) last).status, last.getMessage() + " (tried "
-                    + bases.size() + " upload servers)" + diagnostics());
-        }
-        throw last;
+        int status = last instanceof CloudException ? ((CloudException) last).status : 502;
+        throw new CloudException(status, "Uploading failed: no TeraBox upload server took the file. "
+                + String.join("; ", notes) + diagnostics());
     }
 
     private void sendBlockTo(String base, String path, String uploadId, int index, byte[] buf, int len, String md5)

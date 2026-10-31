@@ -175,10 +175,36 @@ final class DrivesPage extends Page {
         manage.setOrientation(LinearLayout.HORIZONTAL);
         manage.addView(textButton("Edit", () -> host.editDrive(a)));
         manage.addView(textButton("Remove", () -> host.removeDrive(a)));
+        if (a.type == Account.Type.TERABOX) manage.addView(textButton("Test TeraBox", () -> testTeraBox(a)));
         card.addView(manage);
 
         card.addView(backupSection(a));
         return card;
+    }
+
+    /** Runs TeraBox's self test and shows what every step answered, so a problem can be traced. */
+    private void testTeraBox(final Account a) {
+        final TextView msg = Ui.text(act, "Testing every step (listing, upload, download). This takes up to a minute...",
+                13, false, Ui.INK);
+        msg.setPadding(Ui.dp(act, 20), Ui.dp(act, 12), Ui.dp(act, 20), Ui.dp(act, 8));
+        msg.setTextIsSelectable(true);
+        ScrollView sv = new ScrollView(act);
+        sv.addView(msg);
+        final String[] report = {""};
+        new android.app.AlertDialog.Builder(act).setTitle("TeraBox test").setView(sv)
+                .setPositiveButton("Copy", (d, w) -> copy("TeraBox test", report[0]))
+                .setNegativeButton("Close", null).show();
+        new Thread(() -> {
+            String text;
+            try {
+                text = ((com.cloudbridge.app.core.TeraBoxClient) Clients.get(a)).diagnose();
+            } catch (Exception e) {
+                text = "The test could not run: " + e.getMessage();
+            }
+            report[0] = text;
+            final String shown = text;
+            act.runOnUiThread(() -> msg.setText(shown));
+        }).start();
     }
 
     private void showCached(Account a, TextView space, LinearLayout holder) {
