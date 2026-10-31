@@ -81,6 +81,10 @@ final class FilesPage extends Page {
         String run(Transfer.Progress progress) throws Exception;
     }
 
+    /** Where the page was last; kept so that rebuilding the screen (for the look) does not lose the place. */
+    private static String lastDrive;
+    private static String lastPath = "/";
+
     private final Host host;
     private final Activity act;
     private final SharedPreferences prefs;
@@ -224,6 +228,8 @@ final class FilesPage extends Page {
         }
         root.addView(selBar, Ui.lp(Ui.MATCH, Ui.WRAP));
 
+        if (lastDrive != null) drive = AccountStore.find(act, lastDrive);
+        if (drive != null || lastDrive == null) path = Paths.normalize(lastPath);
         hadAccess = hasAccess();
         rebuild();
         load();
@@ -279,6 +285,8 @@ final class FilesPage extends Page {
         closeSearchQuietly();
         drive = d;
         path = Paths.normalize(p);
+        lastDrive = d == null ? null : d.id;
+        lastPath = path;
         rebuild();
         load();
     }

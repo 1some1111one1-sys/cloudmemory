@@ -66,7 +66,7 @@ final class DrivesPage extends Page {
         bridgeBox = new LinearLayout(act);
         bridgeBox.setOrientation(LinearLayout.VERTICAL);
         bridgeBox.setPadding(Ui.dp(act, 14), Ui.dp(act, 12), Ui.dp(act, 14), Ui.dp(act, 12));
-        Ui.round(bridgeBox, Color.parseColor("#E8F0FE"), 12);
+        Ui.round(bridgeBox, Ui.INFO, 12);
         page.addView(bridgeBox, Ui.lpMargin(Ui.MATCH, Ui.WRAP, 0, Ui.dp(act, 20), 0, 0));
 
         TextView notes = Ui.text(act, "Good to know\n"

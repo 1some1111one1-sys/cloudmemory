@@ -46,6 +46,8 @@ Open the sidebar (the ☰ button) to switch between three pages:
   to the phone ("Download" saves into the phone's Download folder). **Share** sends the selected files straight
   from the phone or from a cloud (cloud files are fetched first) to any app, such as WhatsApp or Gmail. Copying and moving use *Paste here*.
 
+The switch at the bottom of the sidebar turns **dark mode** on and off (it follows the phone's setting until you choose).
+
 The Files page needs Android's **All files access** (the app asks), and the backup needs access to photos and videos.
 
 ## Use it

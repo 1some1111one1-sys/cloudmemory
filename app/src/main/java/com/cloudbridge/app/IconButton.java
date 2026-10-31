@@ -88,7 +88,7 @@ final class IconButton extends View {
                 RectF front = new RectF(-s, -s * 0.4f, s * 0.5f, s);
                 int old = p.getColor();
                 fill(p);
-                p.setColor(0xFFFFFFFF);
+                p.setColor(Ui.PAGE);
                 c.drawRoundRect(front, s * 0.2f, s * 0.2f, p);
                 p.setStyle(Paint.Style.STROKE);
                 p.setColor(old);

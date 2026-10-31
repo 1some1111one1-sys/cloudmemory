@@ -1,6 +1,7 @@
 package com.cloudbridge.app;
 
 import android.content.Context;
+import android.content.res.Configuration;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -11,19 +12,44 @@ import android.widget.TextView;
 
 /** Colours and small view helpers shared by every screen. */
 final class Ui {
-    static final int INK = Color.parseColor("#1C1C1E");
-    static final int SUB = Color.parseColor("#8E8E93");
-    static final int ICON = Color.parseColor("#3C4043");
-    static final int ACCENT = Color.parseColor("#1E88E5");
-    static final int PAGE = Color.parseColor("#FFFFFF");
-    static final int CARD = Color.parseColor("#F4F5F7");
-    static final int LINE = Color.parseColor("#E6E8EB");
-    static final int CHIP = Color.parseColor("#E8ECF3");
-    static final int CHIP_TEXT = Color.parseColor("#5A6B85");
-    static final int CURRENT = Color.parseColor("#FFF1CC");
-    static final int CURRENT_TEXT = Color.parseColor("#F57C00");
-    static final int SELECTED = Color.parseColor("#E3F0FD");
-    static final int DANGER = Color.parseColor("#B3261E");
+    // Colours; filled in by apply() for the light or the dark look.
+    static int INK, SUB, ICON, ACCENT, PAGE, CARD, LINE, CHIP, CHIP_TEXT, CURRENT, CURRENT_TEXT, SELECTED, DANGER, INFO, HEADER;
+    static boolean dark;
+
+    static {
+        apply(false);
+    }
+
+    /** Reads the saved choice (the phone's own setting until the person chooses) and sets the colours. */
+    static void init(Context c) {
+        boolean night = (c.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                == Configuration.UI_MODE_NIGHT_YES;
+        apply(c.getSharedPreferences("cloudbridge_ui", 0).getBoolean("dark", night));
+    }
+
+    static void setDark(Context c, boolean on) {
+        c.getSharedPreferences("cloudbridge_ui", 0).edit().putBoolean("dark", on).commit();
+        apply(on);
+    }
+
+    static void apply(boolean on) {
+        dark = on;
+        INK = Color.parseColor(on ? "#ECECEF" : "#1C1C1E");
+        SUB = Color.parseColor(on ? "#A0A0A8" : "#8E8E93");
+        ICON = Color.parseColor(on ? "#DADCE0" : "#3C4043");
+        ACCENT = Color.parseColor(on ? "#64B5F6" : "#1E88E5");
+        PAGE = Color.parseColor(on ? "#121212" : "#FFFFFF");
+        CARD = Color.parseColor(on ? "#1F2023" : "#F4F5F7");
+        LINE = Color.parseColor(on ? "#34363A" : "#E6E8EB");
+        CHIP = Color.parseColor(on ? "#2B303B" : "#E8ECF3");
+        CHIP_TEXT = Color.parseColor(on ? "#AEBBD3" : "#5A6B85");
+        CURRENT = Color.parseColor(on ? "#4A3B14" : "#FFF1CC");
+        CURRENT_TEXT = Color.parseColor(on ? "#FFB74D" : "#F57C00");
+        SELECTED = Color.parseColor(on ? "#1D3A57" : "#E3F0FD");
+        DANGER = Color.parseColor(on ? "#F2B8B5" : "#B3261E");
+        INFO = Color.parseColor(on ? "#1B2A3F" : "#E8F0FE");
+        HEADER = Color.parseColor(on ? "#1565C0" : "#1E88E5");
+    }
 
     private Ui() {
     }

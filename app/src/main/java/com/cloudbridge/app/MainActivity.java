@@ -20,6 +20,7 @@ import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import com.cloudbridge.app.core.Account;
@@ -38,7 +39,6 @@ import java.net.URI;
  * dialog that adds or edits a drive.
  */
 public class MainActivity extends Activity implements Host {
-    private static final int GREY = Color.parseColor("#5F6368");
     private static final int REQUEST_TERABOX = 4711;
     private static final int REQUEST_MEDIA = 31;
 
@@ -56,6 +56,8 @@ public class MainActivity extends Activity implements Host {
     private Page current;
     private java.util.function.Consumer<String> pendingCookie;
     private Runnable pendingMedia;
+    /** The page to show again after the look was changed (the screen is rebuilt for that). */
+    private static int startPage;
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -68,6 +70,8 @@ public class MainActivity extends Activity implements Host {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        Ui.init(this);
+        setTheme(Ui.dark ? R.style.AppTheme_Dark : R.style.AppTheme);
         super.onCreate(savedInstanceState);
         setTitle("CloudBridge");
         drawerWidth = Math.min(dp(300), getResources().getDisplayMetrics().widthPixels * 82 / 100);
@@ -96,7 +100,9 @@ public class MainActivity extends Activity implements Host {
         home = new HomePage(this);
         drives = new DrivesPage(this);
         files = new FilesPage(this);
-        show(home, 0);
+        if (startPage == 1) goDrives();
+        else if (startPage == 2) goFiles(null);
+        else goHome();
         cleanOpenedFiles();
     }
 
@@ -131,7 +137,7 @@ public class MainActivity extends Activity implements Host {
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.VERTICAL);
         header.setPadding(dp(24), dp(28), dp(24), dp(20));
-        header.setBackgroundColor(Ui.ACCENT);
+        header.setBackgroundColor(Ui.HEADER);
         IconButton logo = new IconButton(this, IconButton.Glyph.CLOUD);
         logo.setColor(Color.WHITE);
         logo.setClickable(false);
@@ -146,6 +152,23 @@ public class MainActivity extends Activity implements Host {
         for (LinearLayout r : drawerRows) {
             drawer.addView(r, Ui.lpMargin(Ui.MATCH, dp(52), dp(10), dp(4), dp(10), 0));
         }
+        drawer.addView(new View(this), Ui.weight(Ui.MATCH, 0, 1f));
+        View line = new View(this);
+        line.setBackgroundColor(Ui.LINE);
+        drawer.addView(line, Ui.lp(Ui.MATCH, 2));
+        Switch night = new Switch(this);
+        night.setText("Dark mode");
+        night.setTextSize(16);
+        night.setTextColor(Ui.INK);
+        night.setChecked(Ui.dark);
+        night.setPadding(dp(24), dp(14), dp(24), dp(14));
+        night.setOnCheckedChangeListener((b, on) -> {
+            if (on == Ui.dark) return;
+            Ui.setDark(this, on);
+            startPage = current == drives ? 1 : current == files ? 2 : 0;
+            recreate();
+        });
+        drawer.addView(night, Ui.lp(Ui.MATCH, Ui.WRAP));
     }
 
     private LinearLayout drawerItem(IconButton.Glyph g, String label, final Runnable go) {
@@ -345,12 +368,12 @@ public class MainActivity extends Activity implements Host {
         final TextView teraWarn = label("Experimental and unofficial. TeraBox has no public API, so CloudBridge uses "
                 + "the website's own requests, which TeraBox can change at any time. Automated access may be against "
                 + "TeraBox's terms, so use it at your own risk. You sign in on TeraBox's real page; CloudBridge never "
-                + "sees your password.", 13, false, Color.parseColor("#B3261E"));
+                + "sees your password.", 13, false, Ui.DANGER);
         teraWarn.setPadding(0, dp(8), 0, dp(4));
         final Button teraSignIn = new Button(this);
         teraSignIn.setText("Sign in on the TeraBox website");
         teraSignIn.setAllCaps(false);
-        final TextView teraStatus = label(teraCookie[0].isEmpty() ? "Not signed in yet." : "Signed in.", 14, false, GREY);
+        final TextView teraStatus = label(teraCookie[0].isEmpty() ? "Not signed in yet." : "Signed in.", 14, false, Ui.SUB);
         teraStatus.setPadding(0, dp(4), 0, 0);
         final EditText user = field("", wasGoogle || wasTera ? "" : a.username,
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);
@@ -379,10 +402,10 @@ public class MainActivity extends Activity implements Host {
         signIn.setText("Sign in with Google");
         signIn.setAllCaps(false);
         final TextView googleStatus = label(refreshToken[0].isEmpty() ? "Not signed in yet."
-                : "Signed in" + (email[0].isEmpty() ? "." : " as " + email[0]), 14, false, GREY);
+                : "Signed in" + (email[0].isEmpty() ? "." : " as " + email[0]), 14, false, Ui.SUB);
         googleStatus.setPadding(0, dp(4), 0, 0);
 
-        final TextView status = label("", 13, false, Color.parseColor("#B3261E"));
+        final TextView status = label("", 13, false, Ui.DANGER);
         status.setPadding(0, dp(8), 0, 0);
 
         form.addView(name);
@@ -523,7 +546,7 @@ public class MainActivity extends Activity implements Host {
             final String clientId = builtInGoogle ? BuildConfig.GOOGLE_CLIENT_ID : googleId.getText().toString().trim();
             final String clientSecret = builtInGoogle ? BuildConfig.GOOGLE_CLIENT_SECRET : googleSecret.getText().toString().trim();
             if (clientId.isEmpty() || clientSecret.isEmpty()) {
-                status.setTextColor(Color.parseColor("#B3261E"));
+                status.setTextColor(Ui.DANGER);
                 status.setText("Enter the client ID and client secret first (tap \"How do I get these two?\").");
                 return;
             }
@@ -532,7 +555,7 @@ public class MainActivity extends Activity implements Host {
             try {
                 rx = new LoopbackReceiver();
             } catch (IOException e) {
-                status.setTextColor(Color.parseColor("#B3261E"));
+                status.setTextColor(Ui.DANGER);
                 status.setText("Could not start the sign-in: " + e.getMessage());
                 return;
             }
@@ -545,11 +568,11 @@ public class MainActivity extends Activity implements Host {
                 startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(authUrl)));
             } catch (Exception e) {
                 rx.close();
-                status.setTextColor(Color.parseColor("#B3261E"));
+                status.setTextColor(Ui.DANGER);
                 status.setText("Could not open the browser: " + e.getMessage());
                 return;
             }
-            status.setTextColor(GREY);
+            status.setTextColor(Ui.SUB);
             status.setText("Finish signing in in your browser, then return to CloudBridge...");
             signIn.setEnabled(false);
             new Thread(() -> {
@@ -577,7 +600,7 @@ public class MainActivity extends Activity implements Host {
                     if (isFinishing() || isDestroyed() || !dialog.isShowing()) return;
                     signIn.setEnabled(true);
                     if (fFailure != null) {
-                        status.setTextColor(Color.parseColor("#B3261E"));
+                        status.setTextColor(Ui.DANGER);
                         status.setText(fFailure);
                         return;
                     }
@@ -587,7 +610,7 @@ public class MainActivity extends Activity implements Host {
                     if (name.getText().toString().trim().isEmpty()) {
                         name.setText(fMail.isEmpty() ? "Google Drive" : "Google Drive (" + fMail + ")");
                     }
-                    status.setTextColor(GREY);
+                    status.setTextColor(Ui.SUB);
                     status.setText(fWarning == null ? "Signed in. Now press \"Test & save\"."
                             : "Signed in, but Google Drive answered: " + fWarning);
                 });
@@ -609,7 +632,7 @@ public class MainActivity extends Activity implements Host {
                 status.setText(error);
                 return;
             }
-            status.setTextColor(GREY);
+            status.setTextColor(Ui.SUB);
             status.setText("Testing the connection...");
             testAndSave.setEnabled(false);
             final Account snapshot = a.copy();
@@ -636,7 +659,7 @@ public class MainActivity extends Activity implements Host {
                         if (newSession[0] != null) a.clientSecret = newSession[0];
                         if (save(a, isNew)) dialog.dismiss();
                     } else {
-                        status.setTextColor(Color.parseColor("#B3261E"));
+                        status.setTextColor(Ui.DANGER);
                         status.setText(result + "\n\nYou can still keep these settings with \"Save without testing\".");
                     }
                 });
