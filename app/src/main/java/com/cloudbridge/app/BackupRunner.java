@@ -95,6 +95,11 @@ final class BackupRunner {
                         }
 
                         @Override
+                        public long retryDelayMillis(int attempt) {
+                            return attempt > 3 ? -1 : attempt * 8000L;   // 8 s, 16 s, 24 s
+                        }
+
+                        @Override
                         public void failed(String message) {
                             BackupSettings.setNote(app, a.id, "Problem: " + message);
                         }

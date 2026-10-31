@@ -62,6 +62,11 @@ public final class PhotoBackup {
         /** One photo could not be uploaded (told at once, so a screen can show what is wrong while it runs). */
         default void failed(String message) {
         }
+
+        /** How long to wait before trying a photo again after a network failure; < 0 gives up. attempt starts at 1. */
+        default long retryDelayMillis(int attempt) {
+            return -1;
+        }
     }
 
     /** After this many failures in a row the run stops: something is wrong with the cloud, not with one photo. */
@@ -131,7 +136,7 @@ public final class PhotoBackup {
                     if (!e.isNotFound()) throw e;
                 }
                 if (!skip) {
-                    cloud.upload(path, it.file, Paths.mimeFor(it.name));
+                    uploadWithRetries(cloud, path, it, l);
                     result.uploaded++;
                     result.bytes += it.size;
                 }
@@ -149,6 +154,28 @@ public final class PhotoBackup {
             }
         }
         return result;
+    }
+
+    /** A network that comes and goes (no DNS for a moment, a dropped connection) is waited out, not counted as failure. */
+    private static void uploadWithRetries(CloudClient cloud, String path, Item it, Listener l) throws IOException {
+        for (int attempt = 1; ; attempt++) {
+            try {
+                cloud.upload(path, it.file, Paths.mimeFor(it.name));
+                return;
+            } catch (CloudException e) {
+                throw e;                                   // TeraBox / the server answered: retrying will not help
+            } catch (IOException e) {
+                long wait = l.retryDelayMillis(attempt);
+                if (wait < 0 || l.cancelled()) throw e;
+                l.progress("No connection, trying again in " + Math.max(1, wait / 1000) + " s: " + it.name);
+                try {
+                    Thread.sleep(wait);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
     }
 
     private static void ensureDir(CloudClient c, String path) throws IOException {

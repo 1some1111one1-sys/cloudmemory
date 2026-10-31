@@ -281,6 +281,33 @@ final class TestFileOps {
                 });
         check("cancelled", c.cancelled && c.uploaded == 0);
 
+        // a network that drops for a moment is waited out
+        final int[] drops = {2};
+        TestWebDavServer.MemoryCloud flaky = new TestWebDavServer.MemoryCloud() {
+            @Override
+            public void upload(String path, File src, String mime) throws IOException {
+                if (drops[0]-- > 0) throw new java.net.UnknownHostException("Unable to resolve host \"dm.1024terabox.com\"");
+                super.upload(path, src, mime);
+            }
+        };
+        PhotoBackup.Item one = photo(dir, "Camera", "FLAKY.jpg", "flaky", 1_700_002_000_000L);
+        PhotoBackup.Result waited = PhotoBackup.run(flaky, "/B", Arrays.asList(one), new PhotoBackup.FileLog(new File(temp("log5"), "b.txt")),
+                new PhotoBackup.Listener() {
+                    @Override
+                    public long retryDelayMillis(int attempt) {
+                        return attempt > 3 ? -1 : 1;
+                    }
+                });
+        eq("uploaded after the network came back", 1, waited.uploaded);
+        eq("and no failure was counted", 0, waited.failed);
+        PhotoBackup.Result noNet = PhotoBackup.run(new TestWebDavServer.MemoryCloud() {
+            @Override
+            public void upload(String path, File src, String mime) throws IOException {
+                throw new java.net.UnknownHostException("down");
+            }
+        }, "/B", Arrays.asList(one), new PhotoBackup.FileLog(new File(temp("log6"), "b.txt")), null);
+        eq("without a retry policy a network failure counts at once", 1, noNet.failed);
+
         // the cloud refuses everything: the run gives up after a few failures instead of trying every photo
         List<PhotoBackup.Item> many = new ArrayList<>();
         for (int i = 0; i < 20; i++) many.add(photo(dir, "Camera", "M" + i + ".jpg", "m" + i, 1_700_001_000_000L + i));

@@ -1,5 +1,6 @@
 package com.cloudbridge.app.core;
 
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.TimeZone;
 
@@ -43,5 +44,10 @@ final class TestFormat {
         check("images preview", FileKind.IMAGE.hasPreview() && FileKind.VIDEO.hasPreview() && !FileKind.PDF.hasPreview());
         eq("fraction", 0.25, Format.fraction(CloudQuota.ofUsedAndTotal(25, 100)));
         eq("fraction unknown", -1.0, Format.fraction(null));
+        String answer = "{\"Status\":0,\"Answer\":[{\"name\":\"dm.1024terabox.com\",\"type\":5,\"data\":\"x.example.\"},"
+                + "{\"name\":\"x.example\",\"type\":1,\"data\":\"13.35.1.2\"},{\"type\":1,\"data\":\"13.35.1.3\"}]}";
+        eq("DNS-over-HTTPS answer", Arrays.asList("13.35.1.2", "13.35.1.3"), Doh.parseAddresses(answer));
+        eq("DNS-over-HTTPS without answer", 0, Doh.parseAddresses("{\"Status\":3}").size());
+        eq("DNS-over-HTTPS garbage", 0, Doh.parseAddresses("<html>").size());
     }
 }
