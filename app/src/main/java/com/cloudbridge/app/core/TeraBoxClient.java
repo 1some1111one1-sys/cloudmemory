@@ -199,11 +199,37 @@ public final class TeraBoxClient implements CloudClient {
         String p = Paths.normalize(path);
         Entry e = find(p);
         if (e.dir) throw new CloudException(400, "\"" + Paths.name(p) + "\" is a folder");
-        Map<String, Object> m = apiGet("filemetas", "&target=" + enc("[" + Json.quote(p) + "]") + "&dlink=1", "Downloading");
-        List<Object> info = Json.list(m, "info");
-        String dlink = info.isEmpty() || !(info.get(0) instanceof Map) ? null : Json.str(asMap(info.get(0)), "dlink");
-        if (dlink == null) throw new CloudException(502, "TeraBox gave no download address for \"" + Paths.name(p) + "\"");
-        String current = dlink;
+        List<String> failures = new ArrayList<>();
+        String dlink = null;
+        try {
+            Map<String, Object> m = apiGet("filemetas", "&target=" + enc("[" + Json.quote(p) + "]") + "&dlink=1", "Downloading");
+            List<Object> info = Json.list(m, "info");
+            dlink = info.isEmpty() || !(info.get(0) instanceof Map) ? null : Json.str(asMap(info.get(0)), "dlink");
+            if (dlink == null) failures.add("TeraBox gave no download address");
+        } catch (IOException ex) {
+            failures.add(ex.getMessage());
+        }
+        if (dlink != null) {
+            String err = fetchFile(dlink, dest, e.size);
+            if (err == null) return;
+            failures.add(err);
+        }
+        // The same file straight from the API server.
+        String direct = base() + "/rest/2.0/pcs/file?method=download&app_id=" + APP_ID + "&path=" + enc(p);
+        String err = fetchFile(direct, dest, e.size);
+        if (err == null) return;
+        failures.add(err);
+        StringBuilder msg = new StringBuilder("Downloading \"").append(Paths.name(p)).append("\" failed: ");
+        for (int i = 0; i < failures.size(); i++) msg.append(i == 0 ? "" : "; ").append(failures.get(i));
+        throw new CloudException(502, msg.toString());
+    }
+
+    /**
+     * Downloads one address into dest. Returns null when the file arrived whole, otherwise a short description of
+     * what went wrong (a server that answers an error page with HTTP 200 must not end up saved as the photo).
+     */
+    private String fetchFile(String url, File dest, long expected) throws IOException {
+        String current = url;
         for (int hop = 0; hop < 6; hop++) {
             HttpTransport.Request req = new HttpTransport.Request("GET", current);
             req.header("User-Agent", UA);
@@ -211,7 +237,15 @@ public final class TeraBoxClient implements CloudClient {
             req.header("Referer", site + "/main?category=all");
             req.header("Origin", site);
             if (sameFamily(current)) req.header("Cookie", cookie);
-            HttpTransport.Response r = http.execute(req);
+            String host = URI.create(current).getHost();
+            HttpTransport.Response r;
+            try {
+                r = http.execute(req);
+            } catch (CloudException ce) {
+                throw ce;
+            } catch (IOException ex) {
+                return host + ": " + ex.getMessage();
+            }
             String location = r.header("location");
             if ((r.code == 301 || r.code == 302 || r.code == 307 || r.code == 308) && location != null) {
                 r.close();
@@ -220,13 +254,61 @@ public final class TeraBoxClient implements CloudClient {
             }
             if (r.code / 100 != 2) {
                 int code = r.code;
+                String body = peekText(r);
                 r.close();
-                throw new CloudException(code, "Downloading failed: TeraBox's file server answered HTTP " + code);
+                return host + ": HTTP " + code + (body.isEmpty() ? "" : " " + body);
             }
+            String type = r.header("content-type");
             Http.writeTo(r, dest);
-            return;
+            long got = dest.length();
+            boolean pageType = type != null && (type.startsWith("text/") || type.contains("json"));
+            if ((expected >= 0 && got != expected) || (pageType && expected < 0)) {
+                String head = got <= 2000 ? readHead(dest, 160) : "";
+                //noinspection ResultOfMethodCallIgnored
+                dest.delete();
+                return host + ": got " + got + " bytes" + (expected >= 0 ? " instead of " + expected : "")
+                        + (type == null ? "" : " (" + type + ")") + (head.isEmpty() ? "" : ": " + head);
+            }
+            return null;
         }
-        throw new CloudException(310, "Too many redirects");
+        return "too many redirects";
+    }
+
+    /** The first bytes of a response as one line of text (the body is not read further). */
+    private static String peekText(HttpTransport.Response r) {
+        try {
+            byte[] buf = new byte[160];
+            int n = 0, k;
+            InputStream in = r.stream();
+            while (n < buf.length && (k = in.read(buf, n, buf.length - n)) > 0) n += k;
+            return new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8).replaceAll("\\s+", " ").trim();
+        } catch (IOException ex) {
+            return "";
+        }
+    }
+
+    private static String hexHead(File f, int max) {
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] buf = new byte[max];
+            int n = 0, k;
+            while (n < max && (k = in.read(buf, n, max - n)) > 0) n += k;
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < n; i++) sb.append(String.format("%02x ", buf[i] & 0xff));
+            return sb.toString().trim();
+        } catch (IOException ex) {
+            return "?";
+        }
+    }
+
+    private static String readHead(File f, int max) {
+        try (InputStream in = new FileInputStream(f)) {
+            byte[] buf = new byte[max];
+            int n = 0, k;
+            while (n < max && (k = in.read(buf, n, max - n)) > 0) n += k;
+            return new String(buf, 0, n, java.nio.charset.StandardCharsets.UTF_8).replaceAll("\\s+", " ").trim();
+        } catch (IOException ex) {
+            return "";
+        }
     }
 
     @Override
@@ -549,6 +631,20 @@ public final class TeraBoxClient implements CloudClient {
                     r.append(" filemetas: no download address (").append(m.keySet()).append(")\n");
                 } else {
                     r.append(" download address on ").append(URI.create(dlink).getHost()).append("\n");
+                    if (file.size >= 0 && file.size <= 8L * 1024 * 1024) {
+                        File tmp = null;
+                        try {
+                            tmp = File.createTempFile("tbtest", ".bin");
+                            download(file.path, tmp);
+                            r.append(" whole download of \"").append(Paths.name(file.path)).append("\": ok, ").append(tmp.length()).append(" bytes (listed ")
+                                    .append(file.size).append("), starts: ").append(hexHead(tmp, 8)).append("\n");
+                        } catch (IOException ex) {
+                            r.append(" whole download of \"").append(Paths.name(file.path)).append("\": FAILED ").append(ex.getMessage()).append("\n");
+                        } finally {
+                            if (tmp != null) //noinspection ResultOfMethodCallIgnored
+                                tmp.delete();
+                        }
+                    }
                     HttpTransport.Request req = new HttpTransport.Request("GET", dlink);
                     req.header("User-Agent", UA);
                     req.header("Referer", site + "/main?category=all");

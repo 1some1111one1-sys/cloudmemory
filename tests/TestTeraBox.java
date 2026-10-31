@@ -70,6 +70,10 @@ final class TestTeraBox {
             eq("download odd name", "x", new String(download(c, "/Docs/café (1) #.txt")));
             check("folder download refused", expectFail("dl folder", () -> download(c, "/Docs")) != null);
             check("jsToken scraped from the page and sent", s.sawJsToken > 0);
+            s.dlinkReturnsPage = true;
+            eq("an error page from the file server is not the file; the API server's own download is used", "hello tera", new String(download(c, "/Docs/a.txt")));
+            check("the direct download was used", s.directDownloads == 1);
+            s.dlinkReturnsPage = false;
             int before = s.log.size();
             c.list("/Docs");
             c.stat("/Docs/a.txt");
@@ -90,6 +94,7 @@ final class TestTeraBox {
             check("diagnose tests the upload", report.contains("precreate: ok") && report.contains("upload to"));
             check("diagnose tests the download", report.contains("download address") && report.contains("first request: HTTP"));
             check("diagnose leaves no file behind", !s.files.containsKey("/.cloudbridge-test"));
+            check("diagnose downloads the whole file", report.contains("whole download of \"a.txt\": ok, 10 bytes"));
             check("diagnose does not print the cookie", !report.contains("GOODSESSION"));
         } finally {
             s.stop();

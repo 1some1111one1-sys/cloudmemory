@@ -38,6 +38,8 @@ final class MockTeraBoxServer {
     volatile boolean pageWithoutJsToken;
     volatile String forceErrno;                                // answer every /api call with this errno
     volatile boolean redirectLogin;
+    volatile boolean dlinkReturnsPage;       // the file servers answer HTTP 200 with an error text instead of the file
+    volatile int directDownloads;
     volatile boolean breakTemplate;          // the token endpoints answer with an HTML 404 page
     volatile boolean bdstokenInPage;
     volatile String locateAnswer;            // host that locateupload names (default: this server)
@@ -106,6 +108,10 @@ final class MockTeraBoxServer {
                 text(ex, 200, html, "text/html");
                 return;
             }
+            if (path.startsWith("/dl2/") && dlinkReturnsPage) {
+                text(ex, 200, "{\"error_code\":31045,\"error_msg\":\"user not exists\"}", "application/json");
+                return;
+            }
             if (path.startsWith("/dl2/")) {
                 download(ex, path.substring(5), authed);
                 return;
@@ -155,6 +161,24 @@ final class MockTeraBoxServer {
                     precreate(ex, form(new String(body, StandardCharsets.UTF_8)));
                     break;
                 case "/rest/2.0/pcs/file":
+                    if ("download".equals(q.get("method"))) {
+                        directDownloads++;
+                        F f;
+                        synchronized (files) {
+                            f = files.get(q.get("path"));
+                        }
+                        if (f == null) {
+                            ex.sendResponseHeaders(404, -1);
+                            return;
+                        }
+                        ex.sendResponseHeaders(200, f.data.length == 0 ? -1 : f.data.length);
+                        if (f.data.length > 0) {
+                            try (OutputStream o = ex.getResponseBody()) {
+                                o.write(f.data);
+                            }
+                        }
+                        return;
+                    }
                     json(ex, "{\"host\":\"" + (locateAnswer != null ? locateAnswer : "127.0.0.1:" + server.getAddress().getPort()) + "\"}");
                     break;
                 case "/rest/2.0/pcs/superfile2":
