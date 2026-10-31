@@ -420,8 +420,21 @@ public final class TeraBoxClient implements CloudClient {
 
     /** One request, answered in a line: the status and the start of the answer, or why it failed. */
     private String probe(HttpTransport.Request req) {
+        return probe(req, null);
+    }
+
+    /** {@code origin}: null keeps the usual headers, "" sends none, anything else is used as Origin and Referer. */
+    private String probe(HttpTransport.Request req, String origin) {
         try {
             decorate(req, req.url);
+            if (origin != null) {
+                req.headers.remove("Origin");
+                req.headers.remove("Referer");
+                if (!origin.isEmpty()) {
+                    req.header("Origin", origin);
+                    req.header("Referer", origin + "/main?category=all");
+                }
+            }
             HttpTransport.Response r = http.execute(req);
             String text = readText(r, 4096).replaceAll("\\s+", " ").trim();
             String type = r.header("content-type");
@@ -485,17 +498,21 @@ public final class TeraBoxClient implements CloudClient {
                         b + "/rest/2.0/pcs/file?method=locateupload&appid=" + APP_ID + "&path=" + enc("/.cloudbridge-test")
                                 + "&uploadid=" + enc(uploadId) + "&upload_version=2.0"))).append("\n");
             }
+            String[][] variants = {{"site origin", site, "1"}, {"www.terabox.com origin", "https://www.terabox.com", "1"},
+                    {"no origin", "", "0"}};
             for (String b : uploadCandidates("/.cloudbridge-test", uploadId)) {
-                String boundary = "----CloudBridgeTest";
-                byte[] body = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"blob\"\r\n"
-                        + "Content-Type: application/octet-stream\r\n\r\nx\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.ISO_8859_1);
-                String url = b + "/rest/2.0/pcs/superfile2?method=upload&type=tmpfile&app_id=" + APP_ID
-                        + "&channel=dubox&clienttype=0&web=1&path=" + enc("/.cloudbridge-test") + "&uploadid=" + enc(uploadId)
-                        + "&uploadsign=0&partseq=0";
-                HttpTransport.Request req = new HttpTransport.Request("POST", url).body(body, "multipart/form-data; boundary=" + boundary);
-                req.header("Origin", site);
-                req.header("Referer", site + "/main?category=all");
-                r.append(" upload to ").append(b.replaceAll("^[a-z]+://", "")).append(": ").append(probe(req)).append("\n");
+                for (String[] v : variants) {
+                    if (localSite() && !v[2].equals("1")) continue;
+                    String boundary = "----CloudBridgeTest";
+                    byte[] body = ("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"blob\"\r\n"
+                            + "Content-Type: application/octet-stream\r\n\r\nx\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.ISO_8859_1);
+                    String url = b + "/rest/2.0/pcs/superfile2?method=upload&type=tmpfile&app_id=" + APP_ID
+                            + "&channel=dubox&clienttype=0&web=1&path=" + enc("/.cloudbridge-test") + "&uploadid=" + enc(uploadId)
+                            + "&uploadsign=0&partseq=0";
+                    HttpTransport.Request req = new HttpTransport.Request("POST", url).body(body, "multipart/form-data; boundary=" + boundary);
+                    r.append(" upload to ").append(b.replaceAll("^[a-z]+://", "")).append(" (").append(v[0]).append("): ")
+                            .append(probe(req, v[1])).append("\n");
+                }
             }
         }
 
@@ -617,7 +634,7 @@ public final class TeraBoxClient implements CloudClient {
                 // A wrong server answers 403 / 404 / 405 / 5xx. A real answer from TeraBox (a JSON error) is final.
                 if (e.status != 403 && e.status != 404 && e.status != 405 && e.status / 100 != 5) throw e;
                 last = new CloudException(e.status, e.getMessage());
-                notes.add(name + ": HTTP " + e.status);
+                notes.add(name + ": " + String.valueOf(e.getMessage()).replaceAll("^.*answered ", ""));
                 state.badUploadBases.add(b);
             } catch (IOException e) {
                 last = e;           // the server does not exist or cannot be reached
@@ -650,8 +667,9 @@ public final class TeraBoxClient implements CloudClient {
         HttpTransport.Response r = http.execute(req);
         String text = readText(r, 64 * 1024);
         if (r.code / 100 != 2) {
+            String said = text.replaceAll("\\s+", " ").trim();
             throw new CloudException(r.code, "Uploading failed: TeraBox's upload server " + base.replaceAll("^[a-z]+://", "")
-                    + " answered HTTP " + r.code);
+                    + " answered HTTP " + r.code + (said.isEmpty() ? "" : " (" + said.substring(0, Math.min(said.length(), 120)) + ")"));
         }
         Map<String, Object> m = parse(text, "Uploading");
         long errno = Json.num(m, "errno", 0);
