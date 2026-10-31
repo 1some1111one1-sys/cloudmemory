@@ -11,7 +11,7 @@ import android.view.View;
 final class IconButton extends View {
     enum Glyph {
         MENU, BACK, CLOSE, SEARCH, SORT, MORE, NEW_FOLDER, FOLDER, COPY, MOVE, DOWNLOAD, DELETE, RENAME,
-        SELECT_ALL, CHECK, CLOUD, HOME, PLAY, PLUS, REFRESH
+        SELECT_ALL, CHECK, CLOUD, HOME, PLAY, PLUS, REFRESH, SHARE
     }
 
     private Glyph glyph;
@@ -171,6 +171,15 @@ final class IconButton extends View {
             case PLUS:
                 c.drawLine(-s, 0, s, 0, p);
                 c.drawLine(0, -s, 0, s, p);
+                break;
+            case SHARE:
+                fill(p);
+                c.drawCircle(s * 0.65f, -s * 0.6f, s * 0.26f, p);
+                c.drawCircle(-s * 0.65f, 0, s * 0.26f, p);
+                c.drawCircle(s * 0.65f, s * 0.6f, s * 0.26f, p);
+                p.setStyle(Paint.Style.STROKE);
+                c.drawLine(-s * 0.65f, 0, s * 0.65f, -s * 0.6f, p);
+                c.drawLine(-s * 0.65f, 0, s * 0.65f, s * 0.6f, p);
                 break;
             case REFRESH:
                 c.drawArc(new RectF(-s * 0.8f, -s * 0.8f, s * 0.8f, s * 0.8f), -40, 270, false, p);

@@ -144,6 +144,21 @@ public final class Paths {
         return -1;
     }
 
+    /** One type that fits all of {@code mimes}: the type itself, "image/*" for mixed images, or "*" + "/" + "*". */
+    public static String commonMime(java.util.List<String> mimes) {
+        if (mimes.isEmpty()) return MIME_DEFAULT;
+        String first = mimes.get(0);
+        boolean same = true, sameGroup = true;
+        String group = first.contains("/") ? first.substring(0, first.indexOf('/')) : first;
+        for (String m : mimes) {
+            if (!m.equals(first)) same = false;
+            String g = m.contains("/") ? m.substring(0, m.indexOf('/')) : m;
+            if (!g.equals(group)) sameGroup = false;
+        }
+        if (same) return first;
+        return sameGroup ? group + "/*" : "*/*";
+    }
+
     public static String mimeFor(String fileName) {
         int dot = fileName.lastIndexOf('.');
         if (dot < 0 || dot == fileName.length() - 1) return MIME_DEFAULT;

@@ -114,6 +114,10 @@ public final class TestMain {
     // ------------------------------------------------------------------ unit tests
 
     private static void testPaths() {
+        eq("common mime same", "image/png", Paths.commonMime(java.util.Arrays.asList("image/png", "image/png")));
+        eq("common mime group", "image/*", Paths.commonMime(java.util.Arrays.asList("image/png", "image/jpeg")));
+        eq("common mime mixed", "*" + "/" + "*", Paths.commonMime(java.util.Arrays.asList("image/png", "application/pdf")));
+        eq("common mime one", "application/pdf", Paths.commonMime(java.util.Arrays.asList("application/pdf")));
         eq("normalize dots", "/a/c", Paths.normalize("a//b/../c/./"));
         eq("normalize root", "/", Paths.normalize("/"));
         eq("normalize empty", "/", Paths.normalize(""));

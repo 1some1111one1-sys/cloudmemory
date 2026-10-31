@@ -2,6 +2,7 @@ package com.cloudbridge.app;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.content.ClipData;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -94,7 +95,7 @@ final class FilesPage extends Page {
     private final GridView grid;
     private final TextView message;
     private final LinearLayout selBar;
-    private final View copyCell, moveCell, downloadCell, deleteCell, renameCell;
+    private final View copyCell, moveCell, shareCell, downloadCell, deleteCell, renameCell;
     private final Adapter adapter = new Adapter();
     private final int cols;
     private final int cell;
@@ -214,10 +215,11 @@ final class FilesPage extends Page {
         selBar.setBackgroundColor(Ui.PAGE);
         copyCell = actionCell(IconButton.Glyph.COPY, "Copy", () -> startClip(false));
         moveCell = actionCell(IconButton.Glyph.MOVE, "Move", () -> startClip(true));
+        shareCell = actionCell(IconButton.Glyph.SHARE, "Share", this::shareSelected);
         downloadCell = actionCell(IconButton.Glyph.DOWNLOAD, "Download", this::downloadSelected);
         deleteCell = actionCell(IconButton.Glyph.DELETE, "Delete", this::confirmDelete);
         renameCell = actionCell(IconButton.Glyph.RENAME, "Rename", this::renameSelected);
-        for (View v : new View[]{copyCell, moveCell, downloadCell, renameCell, deleteCell}) {
+        for (View v : new View[]{copyCell, moveCell, shareCell, downloadCell, renameCell, deleteCell}) {
             selBar.addView(v, Ui.weight(0, Ui.WRAP, 1f));
         }
         root.addView(selBar, Ui.lp(Ui.MATCH, Ui.WRAP));
@@ -853,6 +855,78 @@ final class FilesPage extends Page {
             scan(dir, r.created);
             return report(r, "saved to the Download folder");
         });
+    }
+
+    /** Sends the selected files to another app. Cloud files are downloaded to the cache first. */
+    private void shareSelected() {
+        final List<Row> files = new ArrayList<>();
+        int folders = 0;
+        for (Row r : selectedRows()) {
+            if (r.dir) folders++;
+            else files.add(r);
+        }
+        if (files.isEmpty()) {
+            toast("Folders cannot be shared. Select files instead.");
+            return;
+        }
+        final Account d = drive;
+        final CloudClient c = client();
+        final int skipped = folders;
+        final List<File> ready = new ArrayList<>();
+        exitSelectionQuietly();
+        runTask("Preparing to share", progress -> {
+            for (Row r : files) {
+                if (progress.cancelled()) return "Stopped";
+                if (d == null) {
+                    ready.add(Clients.phone().fileOf(r.path));
+                } else {
+                    File dir = new File(act.getCacheDir(), "share/" + Integer.toHexString((d.id + r.path).hashCode()));
+                    dir.mkdirs();
+                    File f = new File(dir, Paths.sanitizeName(r.name));
+                    progress.item(r.name);
+                    if (!f.isFile() || f.length() != r.size) c.download(r.path, f);
+                    ready.add(f);
+                }
+            }
+            return null;
+        }, result -> {
+            updateChrome();
+            adapter.notifyDataSetChanged();
+            if (result != null) {
+                toast(result);
+                return;
+            }
+            if (skipped > 0) toast("Folders were left out: only files can be shared.");
+            send(ready);
+        });
+    }
+
+    private void send(List<File> files) {
+        List<Uri> uris = new ArrayList<>();
+        List<String> mimes = new ArrayList<>();
+        for (File f : files) {
+            uris.add(OpenProvider.uriFor(f));
+            mimes.add(Paths.mimeFor(f.getName()));
+        }
+        Intent i;
+        if (uris.size() == 1) {
+            i = new Intent(Intent.ACTION_SEND);
+            i.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        } else {
+            i = new Intent(Intent.ACTION_SEND_MULTIPLE);
+            i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, new ArrayList<>(uris));
+        }
+        i.setType(Paths.commonMime(mimes));
+        // The clip is what carries the read permission to the receiving app.
+        ClipData clip = ClipData.newRawUri("files", uris.get(0));
+        for (int n = 1; n < uris.size(); n++) clip.addItem(new ClipData.Item(uris.get(n)));
+        i.setClipData(clip);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            act.startActivity(Intent.createChooser(i, "Share"));
+        } catch (Exception e) {
+            toast("No app on this phone can receive these files.");
+        }
     }
 
     private void confirmDelete() {

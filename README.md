@@ -42,8 +42,9 @@ Open the sidebar (the ☰ button) to switch between three pages:
   and an existing cloud file is never overwritten.
 - **Files**: the phone's storage, with each cloud drive shown as a folder in its top level. Big icons in a grid
   (pictures and videos show a preview of themselves), a path bar, search, sort, and new folder. Long-press to select,
-  then **copy, move, download, delete or rename**, between phone folders, from a folder to a cloud, and from a cloud
-  to the phone ("Download" saves into the phone's Download folder). Copying and moving use *Paste here*.
+  then **copy, move, share, download, delete or rename**, between phone folders, from a folder to a cloud, and from a cloud
+  to the phone ("Download" saves into the phone's Download folder). **Share** sends the selected files straight
+  from the phone or from a cloud (cloud files are fetched first) to any app, such as WhatsApp or Gmail. Copying and moving use *Paste here*.
 
 The Files page needs Android's **All files access** (the app asks), and the backup needs access to photos and videos.
 

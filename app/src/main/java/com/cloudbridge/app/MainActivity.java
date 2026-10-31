@@ -293,14 +293,19 @@ public class MainActivity extends Activity implements Host {
 
     /** Files that were downloaded only to be opened are not kept for long. */
     private void cleanOpenedFiles() {
-        final File dir = new File(getCacheDir(), "open");
-        new Thread(() -> deleteOld(dir, System.currentTimeMillis() - 24L * 3600 * 1000)).start();
+        final File open = new File(getCacheDir(), "open");
+        final File share = new File(getCacheDir(), "share");
+        new Thread(() -> {
+            long before = System.currentTimeMillis() - 24L * 3600 * 1000;
+            deleteOld(open, before);
+            deleteOld(share, before);
+        }).start();
     }
 
     private static void deleteOld(File f, long before) {
         File[] kids = f.listFiles();
         if (kids != null) for (File k : kids) deleteOld(k, before);
-        if (f.getName().equals("open")) return;
+        if (f.getName().equals("open") || f.getName().equals("share")) return;
         if (f.lastModified() < before) f.delete();
     }
 
