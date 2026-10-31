@@ -72,6 +72,12 @@ public final class BackupSettings {
         prefs(c).edit().putBoolean(id + ".running", running).commit();
     }
 
+    /** A run that was cut off (the app was closed) must not show "Backing up now" for ever. */
+    static void clearStaleRunning(Context c) {
+        if (BackupRunner.isActive()) return;
+        for (com.cloudbridge.app.core.Account a : AccountStore.load(c)) setRunning(c, a.id, false);
+    }
+
     static boolean running(Context c, String id) {
         return prefs(c).getBoolean(id + ".running", false);
     }

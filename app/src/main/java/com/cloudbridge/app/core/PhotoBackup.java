@@ -58,7 +58,14 @@ public final class PhotoBackup {
         default boolean cancelled() {
             return false;
         }
+
+        /** One photo could not be uploaded (told at once, so a screen can show what is wrong while it runs). */
+        default void failed(String message) {
+        }
     }
+
+    /** After this many failures in a row the run stops: something is wrong with the cloud, not with one photo. */
+    public static final int MAX_FAILURES_IN_A_ROW = 4;
 
     public static final class Result {
         public int uploaded;
@@ -66,6 +73,8 @@ public final class PhotoBackup {
         public int failed;
         public long bytes;
         public boolean cancelled;
+        /** Set when the run gave up after repeated failures: the last error. */
+        public String stoppedBecause;
         public final List<String> messages = new ArrayList<>();
 
         public String summary() {
@@ -98,6 +107,7 @@ public final class PhotoBackup {
         ensureDir(cloud, root);
         Set<String> madeDirs = new HashSet<>();
         int n = 0;
+        int inARow = 0;
         for (Item it : todo) {
             if (l.cancelled()) {
                 result.cancelled = true;
@@ -126,9 +136,16 @@ public final class PhotoBackup {
                     result.bytes += it.size;
                 }
                 log.add(it.key());
+                inARow = 0;
             } catch (IOException | RuntimeException e) {
                 result.failed++;
-                if (result.messages.size() < 5) result.messages.add(it.name + ": " + message(e));
+                String msg = it.name + ": " + message(e);
+                if (result.messages.size() < 5) result.messages.add(msg);
+                l.failed(msg);
+                if (++inARow >= MAX_FAILURES_IN_A_ROW) {
+                    result.stoppedBecause = msg;
+                    break;
+                }
             }
         }
         return result;

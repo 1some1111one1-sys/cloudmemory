@@ -280,6 +280,30 @@ final class TestFileOps {
                     }
                 });
         check("cancelled", c.cancelled && c.uploaded == 0);
+
+        // the cloud refuses everything: the run gives up after a few failures instead of trying every photo
+        List<PhotoBackup.Item> many = new ArrayList<>();
+        for (int i = 0; i < 20; i++) many.add(photo(dir, "Camera", "M" + i + ".jpg", "m" + i, 1_700_001_000_000L + i));
+        final int[] tries = {0};
+        final List<String> told = new ArrayList<>();
+        TestWebDavServer.MemoryCloud refusing = new TestWebDavServer.MemoryCloud() {
+            @Override
+            public void upload(String path, File src, String mime) throws IOException {
+                tries[0]++;
+                throw new CloudException(403, "Uploading failed: TeraBox's upload server answered HTTP 403");
+            }
+        };
+        PhotoBackup.FileLog log4 = new PhotoBackup.FileLog(new File(temp("log4"), "b.txt"));
+        PhotoBackup.Result gaveUp = PhotoBackup.run(refusing, "/B", many, log4, new PhotoBackup.Listener() {
+            @Override
+            public void failed(String message) {
+                told.add(message);
+            }
+        });
+        eq("gives up after repeated failures", PhotoBackup.MAX_FAILURES_IN_A_ROW, tries[0]);
+        check("says why", gaveUp.stoppedBecause != null && gaveUp.stoppedBecause.contains("HTTP 403"));
+        eq("each failure is reported at once", PhotoBackup.MAX_FAILURES_IN_A_ROW, told.size());
+        eq("nothing was marked as backed up", 20, PhotoBackup.pending(many, log4).size());
         check("the whole cloud is refused", expectFail("root", () -> PhotoBackup.run(cloud, "/", items, log, null)) != null);
         check("the list survives a restart", new PhotoBackup.FileLog(logFile).size() >= 6);
     }

@@ -19,6 +19,12 @@ final class BackupRunner {
     }
 
     private static final Object LOCK = new Object();
+    private static volatile int active;
+
+    /** True while a backup is really running in this process. */
+    static boolean isActive() {
+        return active > 0;
+    }
 
     private BackupRunner() {
     }
@@ -52,13 +58,18 @@ final class BackupRunner {
     /** Backs up one drive now (whether or not its switch is on). One backup runs at a time. */
     static void run(Context c, Account a, final Cancel cancel, final Progress progress) {
         final Context app = c.getApplicationContext();
-        synchronized (LOCK) {
-            BackupSettings.setRunning(app, a.id, true);
-            try {
-                runLocked(app, a, cancel, progress);
-            } finally {
-                BackupSettings.setRunning(app, a.id, false);
+        active++;                       // counted before waiting, so a waiting run is also "active"
+        try {
+            synchronized (LOCK) {
+                BackupSettings.setRunning(app, a.id, true);
+                try {
+                    runLocked(app, a, cancel, progress);
+                } finally {
+                    BackupSettings.setRunning(app, a.id, false);
+                }
             }
+        } finally {
+            active--;
         }
     }
 
@@ -80,6 +91,12 @@ final class BackupRunner {
                         @Override
                         public void progress(String text) {
                             progress.text(a.name + ": " + text);
+                            BackupSettings.setNote(app, a.id, text);
+                        }
+
+                        @Override
+                        public void failed(String message) {
+                            BackupSettings.setNote(app, a.id, "Problem: " + message);
                         }
 
                         @Override
@@ -91,6 +108,10 @@ final class BackupRunner {
             String note = r.failed > 0 ? r.failed + " could not be uploaded; they will be tried again." : "";
             if (!r.messages.isEmpty() && r.failed > 0) note += "\n" + r.messages.get(0);
             if (r.cancelled) note = "Stopped. It continues next time.";
+            if (r.stoppedBecause != null) {
+                note = "Stopped after " + PhotoBackup.MAX_FAILURES_IN_A_ROW + " failures in a row, so nothing is "
+                        + "wasted retrying. The error was:\n" + r.stoppedBecause + "\nTap \"Back up now\" to try again.";
+            }
             BackupSettings.setResult(app, a.id, items.size() - pending, items.size(), note);
         } catch (Exception e) {
             BackupSettings.setNote(app, a.id, "Backup stopped: " + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));

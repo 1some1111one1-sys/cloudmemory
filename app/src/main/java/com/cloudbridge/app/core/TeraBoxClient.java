@@ -97,6 +97,7 @@ public final class TeraBoxClient implements CloudClient {
         String jsToken;
         String base;                                  // the API server that worked
         String uploadBase;                            // the upload server that worked
+        final java.util.Set<String> badUploadBases = Collections.synchronizedSet(new LinkedHashSet<>());
         final java.util.Set<String> failedBases = Collections.synchronizedSet(new LinkedHashSet<>());
         boolean tokensFetched;
         final Map<String, long[]> listedAt = new ConcurrentHashMap<>();                  // dir -> {time}
@@ -426,18 +427,20 @@ public final class TeraBoxClient implements CloudClient {
     private List<String> uploadCandidates(String path, String uploadId) {
         java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
         if (state.uploadBase != null) out.add(state.uploadBase);
-        String located = locateUploadHost(path, uploadId);
+        String located = state.uploadBase != null ? null : locateUploadHost(path, uploadId);
         if (located != null) out.add(located);
         if (!localSite()) {
             String root = registrable(siteHost);
             out.add(scheme + "://c-jp." + root);
             out.add(scheme + "://c-jp.terabox.com");
-            out.add(scheme + "://c." + root);
-            out.add(scheme + "://c.terabox.com");
-            out.add(scheme + "://d." + root);
         }
         out.add(site);
-        return new ArrayList<>(out);
+        // Servers that already failed for this account are tried last, so a dead one is not retried for every file.
+        List<String> good = new ArrayList<>();
+        List<String> bad = new ArrayList<>();
+        for (String b : out) (state.badUploadBases.contains(b) ? bad : good).add(b);
+        good.addAll(bad);
+        return good;
     }
 
     /** Asks TeraBox which server takes the upload; null when it does not say. */
@@ -475,13 +478,16 @@ public final class TeraBoxClient implements CloudClient {
         for (String b : bases) {
             try {
                 sendBlockTo(b, path, uploadId, index, buf, len, md5);
+                state.badUploadBases.remove(b);
                 return b;
             } catch (CloudException e) {
                 // A wrong server answers 403 / 404 / 5xx. A real answer from TeraBox (a JSON error) is final.
                 if (e.status != 403 && e.status != 404 && e.status != 405 && e.status / 100 != 5) throw e;
                 last = new CloudException(e.status, e.getMessage());
+                state.badUploadBases.add(b);
             } catch (IOException e) {
                 last = e;           // the server does not exist or cannot be reached
+                state.badUploadBases.add(b);
             }
         }
         if (last instanceof CloudException && bases.size() > 1) {

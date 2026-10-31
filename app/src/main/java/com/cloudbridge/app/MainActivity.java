@@ -104,6 +104,7 @@ public class MainActivity extends Activity implements Host {
         else if (startPage == 2) goFiles(null);
         else goHome();
         cleanOpenedFiles();
+        BackupSettings.clearStaleRunning(this);
     }
 
     @Override
