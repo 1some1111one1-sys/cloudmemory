@@ -110,6 +110,10 @@ final class MockTeraBoxServer {
                 download(ex, path.substring(5), authed);
                 return;
             }
+            if ((path.startsWith("/dl/") || path.startsWith("/dl2/")) && ex.getRequestHeaders().getFirst("Referer") == null) {
+                ex.sendResponseHeaders(403, -1);          // the real file servers refuse links opened without a referrer
+                return;
+            }
             if (path.startsWith("/dl/")) {
                 ex.getResponseHeaders().add("Location", "/dl2/" + path.substring(4));
                 ex.sendResponseHeaders(302, -1);

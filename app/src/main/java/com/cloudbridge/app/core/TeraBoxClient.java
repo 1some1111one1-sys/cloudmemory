@@ -207,6 +207,9 @@ public final class TeraBoxClient implements CloudClient {
         for (int hop = 0; hop < 6; hop++) {
             HttpTransport.Request req = new HttpTransport.Request("GET", current);
             req.header("User-Agent", UA);
+            // The file servers refuse a link that is not opened from TeraBox's own page.
+            req.header("Referer", site + "/main?category=all");
+            req.header("Origin", site);
             if (sameFamily(current)) req.header("Cookie", cookie);
             HttpTransport.Response r = http.execute(req);
             String location = r.header("location");
