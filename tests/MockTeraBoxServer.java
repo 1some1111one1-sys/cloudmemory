@@ -40,6 +40,7 @@ final class MockTeraBoxServer {
     volatile boolean redirectLogin;
     volatile boolean breakTemplate;          // the token endpoints answer with an HTML 404 page
     volatile boolean bdstokenInPage;
+    volatile String locateAnswer;            // host that locateupload names (default: this server)
     volatile String deadHost;                // requests for this Host header get an HTML 404 page (like www.)
     volatile int sawJsToken;
     final AtomicInteger uploadedParts = new AtomicInteger();
@@ -150,7 +151,7 @@ final class MockTeraBoxServer {
                     precreate(ex, form(new String(body, StandardCharsets.UTF_8)));
                     break;
                 case "/rest/2.0/pcs/file":
-                    json(ex, "{\"host\":\"127.0.0.1:" + server.getAddress().getPort() + "\"}");
+                    json(ex, "{\"host\":\"" + (locateAnswer != null ? locateAnswer : "127.0.0.1:" + server.getAddress().getPort()) + "\"}");
                     break;
                 case "/rest/2.0/pcs/superfile2":
                     part(ex, q, body, ex.getRequestHeaders().getFirst("Content-Type"));
@@ -261,6 +262,12 @@ final class MockTeraBoxServer {
     }
 
     private void part(HttpExchange ex, Map<String, String> q, byte[] body, String contentType) throws IOException {
+        String cookie = ex.getRequestHeaders().getFirst("Cookie");
+        // The real upload server refuses uploads that are not marked as temporary parts, or that are not signed in.
+        if (!"tmpfile".equals(q.get("type")) || cookie == null || !cookie.contains("ndus=GOODSESSION")) {
+            ex.sendResponseHeaders(403, -1);
+            return;
+        }
         String boundary = contentType.substring(contentType.indexOf("boundary=") + 9);
         String s = new String(body, StandardCharsets.ISO_8859_1);
         int start = s.indexOf("\r\n\r\n") + 4;

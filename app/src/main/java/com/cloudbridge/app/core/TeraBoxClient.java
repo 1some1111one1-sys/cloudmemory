@@ -36,6 +36,8 @@ public final class TeraBoxClient implements CloudClient {
     private static final long CACHE_TTL_MS = 20_000;
     private static final Pattern JS_TOKEN = Pattern.compile("fn\\(\"([^\"\\s]{16,})\"\\)");
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final String[] TERABOX_DOMAINS = {"terabox.com", "1024terabox.com", "terabox.app", "teraboxapp.com",
+            "1024tera.com", "4funbox.com", "mirrobox.com", "nephobox.com", "momerybox.com", "tibibox.com", "freeterabox.com"};
 
     private static final Map<String, State> STATES = new ConcurrentHashMap<>();
 
@@ -94,6 +96,7 @@ public final class TeraBoxClient implements CloudClient {
         String bdstoken;
         String jsToken;
         String base;                                  // the API server that worked
+        String uploadBase;                            // the upload server that worked
         final java.util.Set<String> failedBases = Collections.synchronizedSet(new LinkedHashSet<>());
         boolean tokensFetched;
         final Map<String, long[]> listedAt = new ConcurrentHashMap<>();                  // dir -> {time}
@@ -249,7 +252,7 @@ public final class TeraBoxClient implements CloudClient {
         String blockList = jsonStrings(md5s);
         String rtype = existing == null ? "1" : "3";
 
-        Map<String, Object> pre = apiPost("precreate", "", "path=" + enc(p) + "&autoinit=1&isdir=0&size=" + len
+        Map<String, Object> pre = apiPost("precreate", "", "path=" + enc(p) + "&target_path=" + enc(parent.equals("/") ? "/" : parent) + "&autoinit=1&isdir=0&size=" + len
                 + "&block_list=" + enc(blockList) + "&rtype=" + rtype + "&local_mtime=" + (src.lastModified() / 1000),
                 "Starting the upload of \"" + Paths.name(p) + "\"");
         String uploadId = Json.str(pre, "uploadid");
@@ -269,18 +272,23 @@ public final class TeraBoxClient implements CloudClient {
         }
         if (Json.num(pre, "return_type", 1) == 2) java.util.Arrays.fill(send, false);
 
-        String uploadBase = null;
+        List<String> uploadBases = null;
         try (InputStream in = new FileInputStream(src)) {
             byte[] buf = new byte[BLOCK];
             for (int i = 0; i < md5s.size(); i++) {
                 int n = Math.max(0, readUpTo(in, buf));
                 if (!send[i]) continue;
-                if (uploadBase == null) uploadBase = locateUploadHost(p, uploadId);
-                sendBlock(uploadBase, p, uploadId, i, buf, n, md5s.get(i));
+                if (uploadBases == null) uploadBases = uploadCandidates(p, uploadId);
+                String used = sendBlock(uploadBases, p, uploadId, i, buf, n, md5s.get(i));
+                // Keep the server that worked first, for the next parts and the next files.
+                uploadBases = new ArrayList<>(uploadBases);
+                uploadBases.remove(used);
+                uploadBases.add(0, used);
+                state.uploadBase = used;
             }
         }
 
-        Map<String, Object> created = apiPost("create", "", "path=" + enc(p) + "&size=" + len + "&isdir=0&rtype=" + rtype
+        Map<String, Object> created = apiPost("create", "", "path=" + enc(p) + "&target_path=" + enc(parent.endsWith("/") ? parent : parent + "/") + "&size=" + len + "&isdir=0&rtype=" + rtype
                 + "&uploadid=" + enc(uploadId) + "&block_list=" + enc(blockList)
                 + "&local_mtime=" + (src.lastModified() / 1000), "Saving \"" + Paths.name(p) + "\"");
         String savedAs = Json.str(created, "path");
@@ -406,40 +414,106 @@ public final class TeraBoxClient implements CloudClient {
 
     // ---------------------------------------------------------------- upload helpers
 
-    private String locateUploadHost(String path, String uploadId) {
-        // Best effort: ask TeraBox which server takes the upload; fall back to the main site.
-        try {
-            String base = siteHost.startsWith("127.") || siteHost.startsWith("localhost") ? site : scheme + "://d." + registrable(siteHost);
-            Map<String, Object> m = rawGet(base + "/rest/2.0/pcs/file?method=locateupload&appid=" + APP_ID + "&path=" + enc(path)
-                    + "&uploadid=" + enc(uploadId) + "&upload_version=2.0", "Finding the upload server");
-            String host = Json.str(m, "host");
-            if (host == null) {
-                List<Object> servers = Json.list(m, "servers");
-                if (!servers.isEmpty() && servers.get(0) instanceof Map) host = Json.str(asMap(servers.get(0)), "server");
-            }
-            if (host != null && !host.isEmpty()) {
-                return host.contains("://") ? host : scheme + "://" + host;
-            }
-        } catch (IOException ignored) {
-        }
-        return site;
+    /** True for a site that is a local test server, where there is only one host. */
+    private boolean localSite() {
+        return siteHost.startsWith("127.") || siteHost.startsWith("localhost");
     }
 
-    private void sendBlock(String base, String path, String uploadId, int index, byte[] buf, int len, String md5) throws IOException {
+    /**
+     * The servers that may take an upload, best first. The website host (www) does not accept uploads: TeraBox
+     * answers 403 there, so the upload has to go to the server it names itself ("c-jp.", "c." ...).
+     */
+    private List<String> uploadCandidates(String path, String uploadId) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        if (state.uploadBase != null) out.add(state.uploadBase);
+        String located = locateUploadHost(path, uploadId);
+        if (located != null) out.add(located);
+        if (!localSite()) {
+            String root = registrable(siteHost);
+            out.add(scheme + "://c-jp." + root);
+            out.add(scheme + "://c-jp.terabox.com");
+            out.add(scheme + "://c." + root);
+            out.add(scheme + "://c.terabox.com");
+            out.add(scheme + "://d." + root);
+        }
+        out.add(site);
+        return new ArrayList<>(out);
+    }
+
+    /** Asks TeraBox which server takes the upload; null when it does not say. */
+    private String locateUploadHost(String path, String uploadId) {
+        List<String> asks = new ArrayList<>();
+        if (localSite()) {
+            asks.add(site);
+        } else {
+            asks.add(scheme + "://d." + registrable(siteHost));
+            asks.add(scheme + "://d.terabox.com");
+        }
+        for (String base : asks) {
+            try {
+                Map<String, Object> m = rawGet(base + "/rest/2.0/pcs/file?method=locateupload&appid=" + APP_ID + "&path=" + enc(path)
+                        + "&uploadid=" + enc(uploadId) + "&upload_version=2.0", "Finding the upload server");
+                String host = Json.str(m, "host");
+                if (host == null) {
+                    List<Object> servers = Json.list(m, "servers");
+                    if (!servers.isEmpty() && servers.get(0) instanceof Map) host = Json.str(asMap(servers.get(0)), "server");
+                }
+                if (host != null && !host.isEmpty()) {
+                    return host.contains("://") ? host : scheme + "://" + host;
+                }
+            } catch (IOException ignored) {
+                // try the next one
+            }
+        }
+        return null;
+    }
+
+    /** Sends one part to the first server that takes it; returns the server that did. */
+    private String sendBlock(List<String> bases, String path, String uploadId, int index, byte[] buf, int len, String md5)
+            throws IOException {
+        IOException last = null;
+        for (String b : bases) {
+            try {
+                sendBlockTo(b, path, uploadId, index, buf, len, md5);
+                return b;
+            } catch (CloudException e) {
+                // A wrong server answers 403 / 404 / 5xx. A real answer from TeraBox (a JSON error) is final.
+                if (e.status != 403 && e.status != 404 && e.status != 405 && e.status / 100 != 5) throw e;
+                last = new CloudException(e.status, e.getMessage());
+            } catch (IOException e) {
+                last = e;           // the server does not exist or cannot be reached
+            }
+        }
+        if (last instanceof CloudException && bases.size() > 1) {
+            throw new CloudException(((CloudException) last).status, last.getMessage() + " (tried "
+                    + bases.size() + " upload servers)" + diagnostics());
+        }
+        throw last;
+    }
+
+    private void sendBlockTo(String base, String path, String uploadId, int index, byte[] buf, int len, String md5)
+            throws IOException {
         String boundary = "----CloudBridge" + Long.toHexString(RANDOM.nextLong() & Long.MAX_VALUE);
         ByteArrayOutputStream body = new ByteArrayOutputStream(len + 256);
         body.write(("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"blob\"\r\n"
                 + "Content-Type: application/octet-stream\r\n\r\n").getBytes(StandardCharsets.ISO_8859_1));
         body.write(buf, 0, len);
         body.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.ISO_8859_1));
-        String url = base + "/rest/2.0/pcs/superfile2?method=upload&app_id=" + APP_ID + "&channel=dubox&clienttype=0&web=1"
+        String url = base + "/rest/2.0/pcs/superfile2?method=upload&type=tmpfile&app_id=" + APP_ID
+                + "&channel=dubox&clienttype=0&web=1"
                 + "&path=" + enc(path) + "&uploadid=" + enc(uploadId) + "&uploadsign=0&partseq=" + index;
         HttpTransport.Request req = new HttpTransport.Request("POST", url).body(body.toByteArray(),
                 "multipart/form-data; boundary=" + boundary);
         decorate(req, url);
+        // The upload servers expect the request to come from TeraBox's website, not from the API host.
+        req.header("Origin", site);
+        req.header("Referer", site + "/main?category=all");
         HttpTransport.Response r = http.execute(req);
         String text = readText(r, 64 * 1024);
-        if (r.code / 100 != 2) throw new CloudException(r.code, "Uploading failed: TeraBox's upload server answered HTTP " + r.code);
+        if (r.code / 100 != 2) {
+            throw new CloudException(r.code, "Uploading failed: TeraBox's upload server " + base.replaceAll("^[a-z]+://", "")
+                    + " answered HTTP " + r.code);
+        }
         Map<String, Object> m = parse(text, "Uploading");
         long errno = Json.num(m, "errno", 0);
         if (errno != 0) throw errnoError(errno, "Uploading", text);
@@ -587,7 +661,10 @@ public final class TeraBoxClient implements CloudClient {
         if (status == 301 || status == 302 || status == 303 || status == 307) {
             throw new CloudException(401, what + " failed: TeraBox sent us to its sign-in page. Sign in again.");
         }
-        if (status / 100 != 2) throw new CloudException(status, what + " failed: TeraBox answered HTTP " + status);
+        if (status / 100 != 2) {
+            String where = url.replaceAll("^[a-z]+://", "").replaceAll("\\?.*$", "");
+            throw new CloudException(status, what + " failed: TeraBox answered HTTP " + status + " [" + where + "]");
+        }
         Map<String, Object> m;
         try {
             m = parse(text, what);
@@ -621,8 +698,16 @@ public final class TeraBoxClient implements CloudClient {
                 if (h.equalsIgnoreCase(URI.create(b).getHost())) return true;
             }
             String mine = registrable(siteHost.replaceAll(":\\d+$", ""));
-            return h.equalsIgnoreCase(siteHost.replaceAll(":\\d+$", "")) || h.toLowerCase(Locale.ROOT).endsWith("." + mine)
-                    || h.equalsIgnoreCase(mine);
+            if (h.equalsIgnoreCase(siteHost.replaceAll(":\\d+$", "")) || h.toLowerCase(Locale.ROOT).endsWith("." + mine)
+                    || h.equalsIgnoreCase(mine)) {
+                return true;
+            }
+            // TeraBox runs the same service under several names; its upload servers may be on any of them.
+            String lower = h.toLowerCase(Locale.ROOT);
+            for (String d : TERABOX_DOMAINS) {
+                if (lower.equals(d) || lower.endsWith("." + d)) return true;
+            }
+            return false;
         } catch (IllegalArgumentException e) {
             return false;
         }

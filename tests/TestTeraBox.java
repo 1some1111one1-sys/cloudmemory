@@ -84,10 +84,16 @@ final class TestTeraBox {
             s.dir("/Docs");
             TeraBoxClient c = client(s);
 
+            // The server TeraBox names for uploads is dead: the upload falls back to the next server.
+            s.locateAnswer = "127.0.0.1:1";
+            c.upload("/Docs/fallback.txt", fileOf("via fallback".getBytes()), "text/plain");
+            eq("upload falls back from a dead upload server", "via fallback", new String(s.files.get("/Docs/fallback.txt").data));
+            s.locateAnswer = null;
+
             byte[] nine = bytes(9_500_000, 5);                      // three 4 MB blocks
             c.upload("/Docs/big.bin", fileOf(nine), "application/octet-stream");
             check("big upload stored", s.files.containsKey("/Docs/big.bin") && Arrays.equals(nine, s.files.get("/Docs/big.bin").data));
-            eq("three parts uploaded", 3, s.uploadedParts.get());
+            eq("three parts uploaded (after the one of the fallback test)", 4, s.uploadedParts.get());
             check("round trip", Arrays.equals(nine, download(c, "/Docs/big.bin")));
             eq("listed with size", 9_500_000L, c.stat("/Docs/big.bin").size);
 
