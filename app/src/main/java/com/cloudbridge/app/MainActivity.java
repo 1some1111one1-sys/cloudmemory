@@ -332,8 +332,15 @@ public class MainActivity extends Activity implements Host {
     private void cleanOpenedFiles() {
         final File open = new File(getCacheDir(), "open");
         final File share = new File(getCacheDir(), "share");
+        final android.content.SharedPreferences ui = getSharedPreferences("cloudbridge_ui", 0);
+        final boolean wipe = ui.getInt("cache_version", 0) < 2;
         new Thread(() -> {
             long before = System.currentTimeMillis() - 24L * 3600 * 1000;
+            if (wipe) {
+                // Copies kept by older versions may be damaged; start clean once.
+                before = System.currentTimeMillis() + 1000;
+                ui.edit().putInt("cache_version", 2).commit();
+            }
             deleteOld(open, before);
             deleteOld(share, before);
         }).start();

@@ -892,12 +892,8 @@ final class FilesPage extends Page {
                 if (d == null) {
                     ready.add(Clients.phone().fileOf(r.path));
                 } else {
-                    File dir = new File(act.getCacheDir(), "share/" + Integer.toHexString((d.id + r.path).hashCode()));
-                    dir.mkdirs();
-                    File f = new File(dir, Paths.sanitizeName(r.name));
                     progress.item(r.name);
-                    if (!f.isFile() || f.length() != r.size) c.download(r.path, f);
-                    ready.add(f);
+                    ready.add(CloudCache.fetch(act, d, c, r.path, r.name, r.size));
                 }
             }
             return null;
@@ -988,16 +984,14 @@ final class FilesPage extends Page {
         }
         final Account d = drive;
         final CloudClient c = client();
-        final File dir = new File(act.getCacheDir(), "open/" + Integer.toHexString((d.id + r.path).hashCode()));
-        final File f = new File(dir, Paths.sanitizeName(r.name));
+        final File[] got = new File[1];
         runTask("Opening " + r.name, progress -> {
-            dir.mkdirs();
             progress.item(r.name);
-            if (!f.isFile() || f.length() != r.size) c.download(r.path, f);
+            got[0] = CloudCache.fetch(act, d, c, r.path, r.name, r.size);
             return null;
         }, result -> {
             if (result != null) toast(result);
-            else if (!OpenProvider.view(act, f)) toast("No app on this phone can open this file.");
+            else if (!OpenProvider.view(act, got[0])) toast("No app on this phone can open this file.");
         });
     }
 

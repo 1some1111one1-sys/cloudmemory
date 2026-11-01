@@ -270,11 +270,7 @@ public class ViewerActivity extends Activity {
     /** The picture as a file on the phone: the phone's own file, or the cloud file kept in the cache. */
     private File fileFor(Item it) throws IOException {
         if (drive == null) return Clients.phone().fileOf(it.path);
-        File dir = new File(getCacheDir(), "open/" + Integer.toHexString((drive.id + it.path).hashCode()));
-        dir.mkdirs();
-        File f = new File(dir, Paths.sanitizeName(it.name));
-        if (!f.isFile() || f.length() == 0 || (it.size >= 0 && f.length() != it.size)) client.download(it.path, f);
-        return f;
+        return CloudCache.fetch(this, drive, client, it.path, it.name, it.size);
     }
 
     private static Bitmap decode(File f) {
