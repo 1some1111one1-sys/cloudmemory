@@ -35,6 +35,13 @@ final class TestFormat {
         eq("this year", "16/07", Format.date(a.getTimeInMillis(), now.getTimeInMillis(), utc));
         eq("older", "09/01/2025", Format.date(b.getTimeInMillis(), now.getTimeInMillis(), utc));
         eq("unknown", "", Format.date(0, now.getTimeInMillis(), utc));
+        Calendar d = Calendar.getInstance(utc);
+        d.clear();
+        d.set(2026, Calendar.SEPTEMBER, 11, 20, 50);
+        eq("long date", "September 11, 2026", Format.longDate(d.getTimeInMillis(), utc));
+        eq("clock", "20:50", Format.clock(d.getTimeInMillis(), utc));
+        eq("long date unknown", "", Format.longDate(0, utc));
+        eq("clock unknown", "", Format.clock(-1, utc));
         eq("pdf", FileKind.PDF, FileKind.of("ishaan.PDF", false));
         eq("xlsx", FileKind.SHEET, FileKind.of("a.xlsx", false));
         eq("html", FileKind.HTML, FileKind.of("a.html", false));

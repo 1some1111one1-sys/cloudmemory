@@ -47,6 +47,25 @@ public final class Format {
         return c.get(Calendar.YEAR) == now.get(Calendar.YEAR) ? dm : dm + "/" + c.get(Calendar.YEAR);
     }
 
+    private static final String[] MONTHS = {"January", "February", "March", "April", "May", "June", "July", "August",
+            "September", "October", "November", "December"};
+
+    /** "September 11, 2026", or "" when unknown. */
+    public static String longDate(long millis, TimeZone tz) {
+        if (millis <= 0) return "";
+        Calendar c = Calendar.getInstance(tz, Locale.US);
+        c.setTimeInMillis(millis);
+        return MONTHS[c.get(Calendar.MONTH)] + " " + c.get(Calendar.DAY_OF_MONTH) + ", " + c.get(Calendar.YEAR);
+    }
+
+    /** "20:50", or "" when unknown. */
+    public static String clock(long millis, TimeZone tz) {
+        if (millis <= 0) return "";
+        Calendar c = Calendar.getInstance(tz, Locale.US);
+        c.setTimeInMillis(millis);
+        return String.format(Locale.US, "%02d:%02d", c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE));
+    }
+
     /** How full, 0..1, or -1 when not known. */
     public static double fraction(CloudQuota q) {
         if (q == null || q.total <= 0 || q.used < 0) return -1;

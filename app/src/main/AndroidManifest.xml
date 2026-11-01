@@ -34,6 +34,12 @@
             </intent-filter>
         </activity>
 
+        <!-- The gallery that shows one picture at a time. -->
+        <activity
+            android:name=".ViewerActivity"
+            android:exported="false"
+            android:label="Photo" />
+
         <!-- Makes the connected clouds appear in the Files app and in every app's file picker. -->
         <activity
             android:name=".TeraBoxLoginActivity"

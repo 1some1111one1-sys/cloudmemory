@@ -242,6 +242,10 @@ final class FilesPage extends Page {
 
     @Override
     void onShow() {
+        if (ViewerActivity.changed) {
+            ViewerActivity.changed = false;
+            load();
+        }
         boolean now = hasAccess();
         if (now != hadAccess) {
             hadAccess = now;
@@ -910,31 +914,7 @@ final class FilesPage extends Page {
     }
 
     private void send(List<File> files) {
-        List<Uri> uris = new ArrayList<>();
-        List<String> mimes = new ArrayList<>();
-        for (File f : files) {
-            uris.add(OpenProvider.uriFor(f));
-            mimes.add(Paths.mimeFor(f.getName()));
-        }
-        Intent i;
-        if (uris.size() == 1) {
-            i = new Intent(Intent.ACTION_SEND);
-            i.putExtra(Intent.EXTRA_STREAM, uris.get(0));
-        } else {
-            i = new Intent(Intent.ACTION_SEND_MULTIPLE);
-            i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, new ArrayList<>(uris));
-        }
-        i.setType(Paths.commonMime(mimes));
-        // The clip is what carries the read permission to the receiving app.
-        ClipData clip = ClipData.newRawUri("files", uris.get(0));
-        for (int n = 1; n < uris.size(); n++) clip.addItem(new ClipData.Item(uris.get(n)));
-        i.setClipData(clip);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            act.startActivity(Intent.createChooser(i, "Share"));
-        } catch (Exception e) {
-            toast("No app on this phone can receive these files.");
-        }
+        if (!OpenProvider.share(act, files)) toast("No app on this phone can receive these files.");
     }
 
     private void confirmDelete() {
@@ -984,6 +964,23 @@ final class FilesPage extends Page {
     // ------------------------------------------------------------------ opening a file
 
     private void openFile(final Row r) {
+        if (r.kind == FileKind.IMAGE) {
+            // Pictures open in the app's own gallery, with the other pictures of the folder a swipe away.
+            List<ViewerActivity.Item> pictures = new ArrayList<>();
+            int at = 0;
+            for (Row x : shown) {
+                if (x.dir || x.drive != null || x.kind != FileKind.IMAGE) continue;
+                if (x == r) at = pictures.size();
+                ViewerActivity.Item it = new ViewerActivity.Item();
+                it.name = x.name;
+                it.path = x.path;
+                it.size = x.size;
+                it.modified = x.modified;
+                pictures.add(it);
+            }
+            ViewerActivity.start(act, drive, pictures, at);
+            return;
+        }
         if (drive == null) {
             File f = Clients.phone().fileOf(r.path);
             if (!OpenProvider.view(act, f)) toast("No app on this phone can open this file.");

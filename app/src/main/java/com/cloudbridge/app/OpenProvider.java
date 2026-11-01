@@ -1,5 +1,6 @@
 package com.cloudbridge.app;
 
+import android.content.ClipData;
 import android.content.ContentProvider;
 import android.content.ContentValues;
 import android.content.Context;
@@ -14,6 +15,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -37,6 +39,36 @@ public class OpenProvider extends ContentProvider {
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             ctx.startActivity(i);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Offers the files to another app (the share sheet). Returns false when no app can take them. */
+    static boolean share(Context ctx, List<File> files) {
+        List<Uri> uris = new ArrayList<>();
+        List<String> mimes = new ArrayList<>();
+        for (File f : files) {
+            uris.add(uriFor(f));
+            mimes.add(Paths.mimeFor(f.getName()));
+        }
+        Intent i;
+        if (uris.size() == 1) {
+            i = new Intent(Intent.ACTION_SEND);
+            i.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        } else {
+            i = new Intent(Intent.ACTION_SEND_MULTIPLE);
+            i.putParcelableArrayListExtra(Intent.EXTRA_STREAM, new ArrayList<>(uris));
+        }
+        i.setType(Paths.commonMime(mimes));
+        // The clip is what carries the read permission to the receiving app.
+        ClipData clip = ClipData.newRawUri("files", uris.get(0));
+        for (int n = 1; n < uris.size(); n++) clip.addItem(new ClipData.Item(uris.get(n)));
+        i.setClipData(clip);
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            ctx.startActivity(Intent.createChooser(i, "Share"));
             return true;
         } catch (Exception e) {
             return false;

@@ -11,7 +11,7 @@ import android.view.View;
 final class IconButton extends View {
     enum Glyph {
         MENU, BACK, CLOSE, SEARCH, SORT, MORE, NEW_FOLDER, FOLDER, COPY, MOVE, DOWNLOAD, DELETE, RENAME,
-        SELECT_ALL, CHECK, CLOUD, HOME, PLAY, PLUS, REFRESH, SHARE
+        SELECT_ALL, CHECK, CLOUD, HOME, PLAY, PLUS, REFRESH, SHARE, SHARE_UP, HEART, HEART_FILLED, ROTATE, MORE_CIRCLE
     }
 
     private Glyph glyph;
@@ -186,6 +186,43 @@ final class IconButton extends View {
                 c.drawLine(s * 0.6f, -s * 0.9f, s * 0.7f, -s * 0.3f, p);
                 c.drawLine(s * 0.6f, -s * 0.9f, s * 0.05f, -s * 0.75f, p);
                 break;
+            case SHARE_UP: {
+                c.drawLine(0, -s, 0, s * 0.35f, p);
+                c.drawLine(-s * 0.5f, -s * 0.5f, 0, -s, p);
+                c.drawLine(s * 0.5f, -s * 0.5f, 0, -s, p);
+                Path box = new Path();
+                box.moveTo(-s * 0.5f, -s * 0.05f);
+                box.lineTo(-s * 0.85f, -s * 0.05f);
+                box.lineTo(-s * 0.85f, s);
+                box.lineTo(s * 0.85f, s);
+                box.lineTo(s * 0.85f, -s * 0.05f);
+                box.lineTo(s * 0.5f, -s * 0.05f);
+                c.drawPath(box, p);
+                break;
+            }
+            case HEART:
+                c.drawPath(heartPath(s), p);
+                break;
+            case HEART_FILLED: {
+                int old = p.getColor();
+                fill(p);
+                p.setColor(0xFFE53935);
+                c.drawPath(heartPath(s), p);
+                p.setColor(old);
+                break;
+            }
+            case ROTATE: {
+                c.drawRoundRect(new RectF(-s * 0.85f, -s * 0.15f, s * 0.55f, s), s * 0.25f, s * 0.25f, p);
+                c.drawArc(new RectF(-s * 0.1f, -s * 1.0f, s * 1.0f, s * 0.1f), 180, 200, false, p);
+                c.drawLine(s * 0.97f, -s * 0.26f, s * 0.67f, -s * 0.56f, p);
+                c.drawLine(s * 0.97f, -s * 0.26f, s * 1.27f, -s * 0.56f, p);
+                break;
+            }
+            case MORE_CIRCLE:
+                c.drawCircle(0, 0, s, p);
+                fill(p);
+                for (int i = -1; i <= 1; i++) c.drawCircle(i * s * 0.5f, 0, s * 0.11f, p);
+                break;
             default:
                 break;
         }
@@ -209,6 +246,17 @@ final class IconButton extends View {
         float dx = left ? size * 0.8f : -size * 0.8f;
         c.drawLine(x, y, x + dx, y - size * 0.8f, p);
         c.drawLine(x, y, x + dx, y + size * 0.8f, p);
+    }
+
+    private static Path heartPath(float s) {
+        Path h = new Path();
+        h.moveTo(0, -s * 0.35f);
+        h.cubicTo(s * 0.2f, -s * 1.0f, s * 1.1f, -s * 0.9f, s * 1.0f, -s * 0.2f);
+        h.cubicTo(s * 0.9f, s * 0.4f, s * 0.3f, s * 0.65f, 0, s * 0.95f);
+        h.cubicTo(-s * 0.3f, s * 0.65f, -s * 0.9f, s * 0.4f, -s * 1.0f, -s * 0.2f);
+        h.cubicTo(-s * 1.1f, -s * 0.9f, -s * 0.2f, -s * 1.0f, 0, -s * 0.35f);
+        h.close();
+        return h;
     }
 
     private static Path folderPath(float s) {
